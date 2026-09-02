@@ -81,6 +81,7 @@ fn desktop_save_export_file(
         "svg" => "SVG image",
         "png" => "PNG image",
         "dxf" => "DXF drawing",
+        "json" => "JSON data",
         "html" | "htm" => "HTML document",
         _ => return Err(format!("Unsupported export format: {extension}")),
     };
@@ -143,9 +144,6 @@ fn main() {
     let initial_file = cad_path_from_args(std::env::args_os().skip(1));
 
     tauri::Builder::default()
-        // Keep this first: Tauri requires the single-instance plugin to be
-        // registered before other plugins so forwarded Explorer opens are
-        // delivered reliably to the already-running process.
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
             focus_main_window(app);
 
