@@ -12,7 +12,8 @@ import {
   registerDialogs,
   registerLazyPlugins,
   type RegisterLazyPluginsOptions,
-  registerMTextColorPicker} from './register'
+  registerMTextColorPicker
+} from './register'
 
 /** Options for {@link initializeCadViewer}. */
 export type InitializeCadViewerOptions = AcApDocManagerOptions & {
@@ -24,11 +25,24 @@ export type InitializeCadViewerOptions = AcApDocManagerOptions & {
   htmlViewerRuntimeUrl?: string | URL
 }
 
+const isNativeDesktopHost = (): boolean =>
+  typeof window !== 'undefined' &&
+  Boolean((window as Window & { __TAURI__?: unknown }).__TAURI__)
+
 export const initializeCadViewer = (
   options: InitializeCadViewerOptions = {}
 ) => {
   const { htmlViewerRuntimeUrl, ...docOptions } = options
-  AcApDocManager.createInstance(docOptions)
+
+  // The browser OPEN picker is correct for web builds, but in the installed
+  // Tauri/WebView2 application it bypasses the native Windows file workflow.
+  // Disable it automatically in the native host; the desktop adapter handles
+  // the same `open-file` command event with rfd instead.
+  AcApDocManager.createInstance({
+    ...docOptions,
+    builtinOpenFileDialog:
+      docOptions.builtinOpenFileDialog ?? !isNativeDesktopHost()
+  })
   registerCmds()
   registerDialogs()
   registerMTextColorPicker()
