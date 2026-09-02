@@ -21,11 +21,7 @@ export class AcApEntityPreviewCmd extends AcEdCommand {
     this.mode = AcEdOpenMode.Read
   }
 
-  /**
-   * Prompts for entity selection and preview size, then downloads the PNG.
-   *
-   * @param context - Current application context
-   */
+  /** Prompts for entity selection and preview size, then saves the PNG. */
   async execute(context: AcApContext) {
     const selectionSet = context.view.selectionSet
     let objectIds = selectionSet.count > 0 ? selectionSet.ids : []
@@ -86,12 +82,11 @@ export class AcApEntityPreviewCmd extends AcEdCommand {
       return
     }
 
+    if (result.reason === 'cancelled') return
     this.showMessage(AcApI18n.t(`jig.entout.failed.${result.reason}`), 'error')
   }
 
-  /**
-   * Keeps active layout-view size in sync with current view size.
-   */
+  /** Keeps active layout-view size in sync with current view size. */
   private syncActiveLayoutViewSize(view: AcTrView2d) {
     const layoutView = view.activeLayoutView
     if (!layoutView) {
