@@ -1,22 +1,12 @@
 import type { AcApContext } from '@mlightcad/cad-simple-viewer'
 import {
   AcApSettingManager,
-  resolveExportDownloadName
+  resolveExportDownloadName,
+  saveExportBlob
 } from '@mlightcad/cad-simple-viewer'
 import { AcSvgRenderer } from '@mlightcad/cad-svg-plugin'
 import { jsPDF } from 'jspdf'
 import { svg2pdf } from 'svg2pdf.js'
-
-type DesktopInvoke = <T>(
-  command: string,
-  args?: Record<string, unknown>
-) => Promise<T>
-
-type DesktopTauri = {
-  core?: {
-    invoke?: DesktopInvoke
-  }
-}
 
 /**
  * Utility class for converting CAD drawings to PDF format.
@@ -25,17 +15,14 @@ type DesktopTauri = {
  * vector PDF using jsPDF + svg2pdf.js.
  */
 export class AcApPdfConvertor {
-  /**
-   * Renders the current drawing to PDF. Browser builds use the normal browser
-   * download path; the Windows desktop host opens a native Save As dialog.
-   */
+  /** Renders the current drawing to PDF and saves it. */
   async convert(context: AcApContext) {
     const svgString = await this.buildSvg(context)
     const downloadName = resolveExportDownloadName(
       context.doc.fileName || context.doc.docTitle,
       'pdf'
     )
-    await this.downloadAsPdf(svgString, downloadName)
+    await this.saveAsPdf(svgString, downloadName)
   }
 
   private async buildSvg(context: AcApContext): Promise<string> {
@@ -65,43 +52,26 @@ export class AcApPdfConvertor {
     renderer.changeForeground(bg === 0 ? 0xffffff : 0x000000)
   }
 
-  private getDesktopTauri(): DesktopTauri | undefined {
-    return (window as Window & { __TAURI__?: DesktopTauri }).__TAURI__
-  }
-
-  private async saveWithDesktopDialog(
-    pdf: jsPDF,
-    downloadName: string
-  ): Promise<boolean> {
-    const tauri = this.getDesktopTauri()
-    if (!tauri?.core?.invoke) return false
-
-    const dataUri = pdf.output('datauristring')
-    const commaIndex = dataUri.indexOf(',')
-    if (commaIndex < 0) {
-      throw new Error('Generated PDF data is invalid')
-    }
-
-    const dataBase64 = dataUri.slice(commaIndex + 1)
-    await tauri.core.invoke<string | null>('desktop_save_export_file', {
-      defaultName: downloadName,
-      extension: 'pdf',
-      dataBase64
-    })
-    return true
-  }
-
-  private async downloadAsPdf(svgString: string, downloadName: string) {
+  private async saveAsPdf(svgString: string, downloadName: string) {
     const parser = new DOMParser()
     const svgDoc = parser.parseFromString(svgString, 'image/svg+xml')
     const svgEl = svgDoc.documentElement as unknown as SVGSVGElement
 
-    const vb = svgEl.getAttribute('viewBox')?.split(' ').map(Number)
-    const vbWidth = vb && vb.length === 4 ? Math.abs(vb[2]) : 297
-    const vbHeight = vb && vb.length === 4 ? Math.abs(vb[3]) : 210
+    if (svgEl.nodeName.toLowerCase() === 'parsererror') {
+      throw new Error('PDF export failed because the generated SVG is invalid')
+    }
+
+    const vb = svgEl.getAttribute('viewBox')?.trim().split(/[\s,]+/).map(Number)
+    const vbWidth =
+      vb && vb.length === 4 && Number.isFinite(vb[2]) && vb[2] !== 0
+        ? Math.abs(vb[2])
+        : 297
+    const vbHeight =
+      vb && vb.length === 4 && Number.isFinite(vb[3]) && vb[3] !== 0
+        ? Math.abs(vb[3])
+        : 210
 
     const orientation = vbWidth >= vbHeight ? 'landscape' : 'portrait'
-
     const pdf = new jsPDF({
       orientation,
       unit: 'mm',
@@ -115,14 +85,7 @@ export class AcApPdfConvertor {
       height: vbHeight
     })
 
-    try {
-      if (await this.saveWithDesktopDialog(pdf, downloadName)) return
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
-      window.alert(`PDF export failed.\n\n${message}`)
-      throw error
-    }
-
-    pdf.save(downloadName)
+    const blob = pdf.output('blob')
+    await saveExportBlob(blob, downloadName, 'pdf')
   }
 }
