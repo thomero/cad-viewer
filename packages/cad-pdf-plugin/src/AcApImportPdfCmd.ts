@@ -2,18 +2,22 @@ import { AcApContext, AcEdCommand } from '@mlightcad/cad-simple-viewer'
 
 import { AcApPdfImportConvertor } from './AcApPdfImportConvertor'
 
-/**
- * Command for importing vector geometry from a PDF file.
- * The command name is `ipdf`.
- */
+/** Command for importing vector geometry from a PDF file (`ipdf`). */
 export class AcApImportPdfCmd extends AcEdCommand {
-  /**
-   * Opens a file picker and imports vector geometry from the selected PDF.
-   *
-   * @param context - Application context for the target document
-   */
+  /** Opens a file picker and waits for PDF import to finish. */
   async execute(context: AcApContext) {
     const convertor = new AcApPdfImportConvertor()
-    convertor.importFromFilePicker(context)
+    try {
+      const imported = await convertor.importFromFilePicker(context)
+      if (imported === undefined) return
+      if (imported === 0) {
+        this.showMessage('No vector geometry was found on the selected PDF page.', 'warning')
+      } else {
+        this.showMessage(`Imported ${imported} PDF entities.`, 'success')
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      this.showMessage(`PDF import failed: ${message}`, 'error')
+    }
   }
 }
