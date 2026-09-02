@@ -1,6 +1,6 @@
 # CAD Viewer for Windows
 
-This directory contains the Windows desktop shell for the existing CAD Viewer web application.
+This directory contains the Windows desktop shell for the existing CAD Viewer application.
 
 ## Architecture
 
@@ -25,14 +25,19 @@ From the repository root:
 ```powershell
 pnpm install --frozen-lockfile
 cd packages/cad-viewer-windows
+./generate-icon.ps1
+pnpm dlx @tauri-apps/cli@2.11.4 icon app-icon.generated.png
 pnpm dlx @tauri-apps/cli@2.11.4 build --bundles nsis
 ```
 
-The installer is written under:
+`generate-icon.ps1` creates a valid PNG on Windows and Tauri generates the platform icon resources
+from it. The installer is written under:
 
 `packages/cad-viewer-windows/src-tauri/target/release/bundle/nsis/`
 
 ## GitHub build
 
 Use **Actions -> Windows Desktop Build -> Run workflow**. Pushes that change the Windows shell or
-the full viewer also trigger the workflow automatically.
+the full viewer also trigger the workflow automatically. The workflow builds the icon resources,
+full CAD frontend, Windows executable, and NSIS installer, then uploads them as the
+`CAD-Viewer-Windows-x64` artifact.

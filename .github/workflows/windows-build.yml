@@ -44,6 +44,15 @@ jobs:
       - name: Install JavaScript dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Generate icon source
+        working-directory: packages/cad-viewer-windows
+        shell: pwsh
+        run: ./generate-icon.ps1
+
+      - name: Generate Windows icons
+        working-directory: packages/cad-viewer-windows
+        run: pnpm dlx @tauri-apps/cli@2.11.4 icon app-icon.generated.png
+
       - name: Build Windows application
         working-directory: packages/cad-viewer-windows
         run: pnpm dlx @tauri-apps/cli@2.11.4 build --bundles nsis
