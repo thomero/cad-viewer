@@ -5,6 +5,7 @@ import {
   AcEdPromptStringOptions
 } from '../../editor'
 import { AcApI18n } from '../../i18n'
+import { saveExportText } from '../../util/AcApExportSaveUtil'
 import { AcTrView2d } from '../../view'
 import { runMeasurementEdit } from './AcApMeasurementHistory'
 import { placeMeasurementRecord } from './AcApMeasurementPlace'
@@ -15,17 +16,6 @@ import {
 } from './AcApMeasurementSidecar'
 import { collectMeasurementRecords } from './AcApMeasurementStore'
 
-function downloadText(filename: string, text: string): void {
-  if (typeof document === 'undefined') return
-  const blob = new Blob([text], { type: 'application/json;charset=utf-8' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = filename
-  a.click()
-  URL.revokeObjectURL(url)
-}
-
 function pickJsonFile(): Promise<string | undefined> {
   return new Promise(resolve => {
     if (typeof document === 'undefined') {
@@ -35,28 +25,36 @@ function pickJsonFile(): Promise<string | undefined> {
     const input = document.createElement('input')
     input.type = 'file'
     input.accept = '.json,application/json'
+    input.style.display = 'none'
+    document.body.appendChild(input)
+
     let settled = false
     const finish = (text?: string) => {
       if (settled) return
       settled = true
+      input.remove()
       resolve(text)
     }
-    input.addEventListener('cancel', () => finish())
+
+    input.addEventListener('cancel', () => finish(), { once: true })
     input.onchange = async () => {
       const file = input.files?.[0]
       if (!file) {
         finish()
         return
       }
-      finish(await file.text())
+      try {
+        finish(await file.text())
+      } catch (error) {
+        console.error('[MeasurementImport] Failed to read JSON file', error)
+        finish()
+      }
     }
     input.click()
   })
 }
 
-/**
- * Export current measurements to a `{drawing}.measurement.json` download.
- */
+/** Export current measurements to a `{drawing}.measurement.json` file. */
 export class AcApMeasurementExportCmd extends AcEdCommand {
   constructor() {
     super()
@@ -72,13 +70,16 @@ export class AcApMeasurementExportCmd extends AcEdCommand {
       drawingName,
       measurements: collectMeasurementRecords(view)
     })
-    downloadText(measurementSidecarFileName(drawingName), text)
+    await saveExportText(
+      text,
+      measurementSidecarFileName(drawingName),
+      'json',
+      'application/json;charset=utf-8'
+    )
   }
 }
 
-/**
- * Import measurements from a sidecar JSON file and place them on the view.
- */
+/** Import measurements from a sidecar JSON file and place them on the view. */
 export class AcApMeasurementImportCmd extends AcEdCommand {
   constructor() {
     super()
@@ -87,7 +88,6 @@ export class AcApMeasurementImportCmd extends AcEdCommand {
   }
 
   async execute(context: AcApContext) {
-    // Keep a prompt in i18n for hosts that show status text before the picker.
     void new AcEdPromptStringOptions(
       AcApI18n.t('jig.measurement.import.chooseFile')
     )
@@ -97,7 +97,7 @@ export class AcApMeasurementImportCmd extends AcEdCommand {
     try {
       sidecar = parseMeasurementSidecar(text)
     } catch (err) {
-      console.error(err)
+      console.error('[MeasurementImport] Invalid measurement JSON', err)
       return
     }
     const view = context.view as AcTrView2d
