@@ -8,9 +8,9 @@ import { AcApDxfConvertor } from './AcApDxfConvertor'
  */
 export class AcApConvertToDxfCmd extends AcEdCommand {
   async execute(_context: AcApContext) {
-    await this.withBusyIndicator(() => {
+    await this.withBusyIndicator(async () => {
       const converter = new AcApDxfConvertor()
-      converter.convert()
+      await converter.convert()
     }, AcApI18n.t('main.message.exportingDxf'))
   }
 }
