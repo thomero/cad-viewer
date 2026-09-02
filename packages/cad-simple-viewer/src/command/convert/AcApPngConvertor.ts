@@ -3,6 +3,7 @@ import * as THREE from 'three'
 
 import { AcApDocManager } from '../../app'
 import { resolveExportDownloadName } from '../../util/AcApExportFileNameUtil'
+import { saveExportBlob } from '../../util/AcApExportSaveUtil'
 import { AcTrView2d } from '../../view'
 
 /**
@@ -37,8 +38,7 @@ export class AcApPngConvertor {
     const camera = view.internalCamera
 
     if (!scene || !camera || !layoutView) {
-      console.error('[PNGOUT] Scene or camera not available')
-      return
+      throw new Error('PNG export failed because the CAD scene is not ready')
     }
 
     const viewAspect = view.width / Math.max(view.height, 1)
@@ -130,7 +130,7 @@ export class AcApPngConvertor {
         outputHeight
       )
 
-      this.createFileAndDownloadIt(canvas)
+      await this.savePng(canvas)
     } finally {
       renderer.setRenderTarget(originalRenderTarget)
       renderTarget?.dispose()
@@ -239,9 +239,7 @@ export class AcApPngConvertor {
     return cropped
   }
 
-  /**
-   * Returns the world-space aspect ratio of bounds.
-   */
+  /** Returns the world-space aspect ratio of bounds. */
   private getBoundsAspect(bounds: AcGeBox2d) {
     const size = new AcGeVector2d()
     bounds.getSize(size)
@@ -250,18 +248,7 @@ export class AcApPngConvertor {
     return width / height
   }
 
-  /**
-   * Flips pixel data vertically to correct WebGL's upside-down rendering.
-   *
-   * WebGL renders images upside down (origin at bottom-left), so the pixel
-   * data needs to be flipped to display correctly in standard image viewers.
-   *
-   * @param pixels - The raw pixel data from WebGL render target
-   * @param width - Width of the image in pixels
-   * @param height - Height of the image in pixels
-   * @returns The vertically flipped pixel data
-   * @private
-   */
+  /** Flips WebGL pixel data vertically for normal image coordinates. */
   private flipPixelsVertically(
     pixels: Uint8Array,
     width: number,
@@ -278,15 +265,7 @@ export class AcApPngConvertor {
     return flippedPixels
   }
 
-  /**
-   * Creates a canvas element from pixel data.
-   *
-   * @param pixels - The vertically flipped pixel data
-   * @param width - Width of the image in pixels
-   * @param height - Height of the image in pixels
-   * @returns A canvas element containing the image
-   * @private
-   */
+  /** Creates a canvas element from RGBA pixel data. */
   private createCanvasFromPixels(
     pixels: Uint8Array,
     width: number,
@@ -295,42 +274,31 @@ export class AcApPngConvertor {
     const canvas = document.createElement('canvas')
     canvas.width = width
     canvas.height = height
-    const ctx = canvas.getContext('2d')!
+    const ctx = canvas.getContext('2d')
+    if (!ctx) {
+      throw new Error('PNG export failed because a 2D canvas could not be created')
+    }
     const imageData = ctx.createImageData(width, height)
     imageData.data.set(pixels)
     ctx.putImageData(imageData, 0, 0)
     return canvas
   }
 
-  /**
-   * Creates a downloadable PNG file and triggers the download.
-   *
-   * This method:
-   * - Exports the canvas to a PNG data URL
-   * - Uses the drawing file name as the download file name
-   * - Creates and triggers a download link
-   *
-   * @param canvas - The canvas element containing the image
-   * @private
-   */
-  private createFileAndDownloadIt(canvas: HTMLCanvasElement) {
+  /** Encodes and saves the rendered canvas as PNG. */
+  private async savePng(canvas: HTMLCanvasElement) {
     const doc = AcApDocManager.instance.curDocument
     const downloadName = resolveExportDownloadName(
       doc.fileName || doc.docTitle,
       'png'
     )
 
-    // Export canvas to PNG data URL
-    const dataURL = canvas.toDataURL('image/png')
+    const blob = await new Promise<Blob>((resolve, reject) => {
+      canvas.toBlob(result => {
+        if (result) resolve(result)
+        else reject(new Error('PNG encoder returned no image data'))
+      }, 'image/png')
+    })
 
-    // Create a download link and trigger the download
-    const downloadLink = document.createElement('a')
-    downloadLink.href = dataURL
-    downloadLink.download = downloadName
-
-    // Trigger the download
-    document.body.appendChild(downloadLink)
-    downloadLink.click()
-    document.body.removeChild(downloadLink)
+    await saveExportBlob(blob, downloadName, 'png')
   }
 }
