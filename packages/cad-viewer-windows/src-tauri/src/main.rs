@@ -6,6 +6,7 @@ use std::{
     sync::Mutex,
 };
 
+use base64::{engine::general_purpose::STANDARD, Engine as _};
 use tauri::{ipc::Response, AppHandle, Emitter, Manager, State};
 
 #[derive(Default)]
@@ -62,9 +63,59 @@ fn desktop_initial_cad_file(state: State<'_, DesktopState>) -> Option<String> {
 
 #[tauri::command]
 fn desktop_read_cad_file(path: String) -> Result<Response, String> {
-    let path = normalize_cad_path(path).ok_or_else(|| "CAD file does not exist or is not a DWG/DXF drawing".to_string())?;
+    let path = normalize_cad_path(path)
+        .ok_or_else(|| "CAD file does not exist or is not a DWG/DXF drawing".to_string())?;
     let bytes = std::fs::read(&path).map_err(|error| format!("Failed to read {path}: {error}"))?;
     Ok(Response::new(bytes))
+}
+
+#[tauri::command]
+fn desktop_save_export_file(
+    default_name: String,
+    extension: String,
+    data_base64: String,
+) -> Result<Option<String>, String> {
+    let extension = extension.trim_start_matches('.').to_ascii_lowercase();
+    let filter_name = match extension.as_str() {
+        "pdf" => "PDF document",
+        "svg" => "SVG image",
+        "html" | "htm" => "HTML document",
+        _ => return Err(format!("Unsupported export format: {extension}")),
+    };
+
+    let safe_name = Path::new(&default_name)
+        .file_name()
+        .and_then(OsStr::to_str)
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or("export");
+
+    let mut path = match rfd::FileDialog::new()
+        .set_title("Save exported drawing")
+        .add_filter(filter_name, &[extension.as_str()])
+        .set_file_name(safe_name)
+        .save_file()
+    {
+        Some(path) => path,
+        None => return Ok(None),
+    };
+
+    let has_expected_extension = path
+        .extension()
+        .and_then(OsStr::to_str)
+        .map(|value| value.eq_ignore_ascii_case(&extension))
+        .unwrap_or(false);
+    if !has_expected_extension {
+        path.set_extension(&extension);
+    }
+
+    let bytes = STANDARD
+        .decode(data_base64)
+        .map_err(|error| format!("Failed to decode exported {extension} data: {error}"))?;
+
+    std::fs::write(&path, bytes)
+        .map_err(|error| format!("Failed to save {}: {error}", path.display()))?;
+
+    Ok(Some(path.to_string_lossy().into_owned()))
 }
 
 #[tauri::command]
@@ -107,6 +158,7 @@ fn main() {
             desktop_pick_cad_file,
             desktop_initial_cad_file,
             desktop_read_cad_file,
+            desktop_save_export_file,
             desktop_set_window_title
         ])
         .run(tauri::generate_context!())
