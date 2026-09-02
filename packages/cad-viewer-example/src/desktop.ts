@@ -25,7 +25,7 @@ export const isDesktopHost = (): boolean => Boolean(tauri()?.core?.invoke)
 
 export const desktopBasename = (path: string): string => {
   const parts = path.split(/[\\/]/)
-  return parts.at(-1) || path
+  return parts[parts.length - 1] || path
 }
 
 export const pickDesktopCadFile = async (): Promise<string | null> => {
@@ -51,12 +51,14 @@ export const readDesktopCadFile = async (path: string): Promise<File> => {
     { path }
   )
   const bytes = raw instanceof Uint8Array ? raw : new Uint8Array(raw)
+  const buffer = new ArrayBuffer(bytes.byteLength)
+  new Uint8Array(buffer).set(bytes)
   const name = desktopBasename(path)
   const mime = name.toLowerCase().endsWith('.dxf')
     ? 'image/vnd.dxf'
     : 'image/vnd.dwg'
 
-  return new File([bytes], name, { type: mime })
+  return new File([buffer], name, { type: mime })
 }
 
 export const setDesktopWindowTitle = async (title: string): Promise<void> => {
