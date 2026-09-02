@@ -95,7 +95,7 @@ export class AcSvgMTextVector extends AcSvgEntity {
       // unavailable. The legacy SVG text path remains a last-resort fallback.
       const fallback = new AcSvgMText(mtext, style, traits, ctx)
       entity._localSvg = fallback.getLocalSvg()
-      entity._box.copy(fallback.box)
+      entity.setLocalBox(fallback.box)
     })
     return { entity, pending }
   }
@@ -185,7 +185,7 @@ export class AcSvgMTextVector extends AcSvgEntity {
     }
 
     this._localSvg = fragments.join('\n')
-    this._box = box
+    this.setLocalBox(box)
   }
 
   private buildColorSettings(
