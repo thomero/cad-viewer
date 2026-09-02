@@ -7,6 +7,17 @@ import { AcSvgRenderer } from '@mlightcad/cad-svg-plugin'
 import { jsPDF } from 'jspdf'
 import { svg2pdf } from 'svg2pdf.js'
 
+type DesktopInvoke = <T>(
+  command: string,
+  args?: Record<string, unknown>
+) => Promise<T>
+
+type DesktopTauri = {
+  core?: {
+    invoke?: DesktopInvoke
+  }
+}
+
 /**
  * Utility class for converting CAD drawings to PDF format.
  *
@@ -15,7 +26,8 @@ import { svg2pdf } from 'svg2pdf.js'
  */
 export class AcApPdfConvertor {
   /**
-   * Renders the current drawing to PDF and triggers a browser download.
+   * Renders the current drawing to PDF. Browser builds use the normal browser
+   * download path; the Windows desktop host opens a native Save As dialog.
    */
   async convert(context: AcApContext) {
     const svgString = await this.buildSvg(context)
@@ -53,6 +65,32 @@ export class AcApPdfConvertor {
     renderer.changeForeground(bg === 0 ? 0xffffff : 0x000000)
   }
 
+  private getDesktopTauri(): DesktopTauri | undefined {
+    return (window as Window & { __TAURI__?: DesktopTauri }).__TAURI__
+  }
+
+  private async saveWithDesktopDialog(
+    pdf: jsPDF,
+    downloadName: string
+  ): Promise<boolean> {
+    const tauri = this.getDesktopTauri()
+    if (!tauri?.core?.invoke) return false
+
+    const dataUri = pdf.output('datauristring')
+    const commaIndex = dataUri.indexOf(',')
+    if (commaIndex < 0) {
+      throw new Error('Generated PDF data is invalid')
+    }
+
+    const dataBase64 = dataUri.slice(commaIndex + 1)
+    await tauri.core.invoke<string | null>('desktop_save_export_file', {
+      defaultName: downloadName,
+      extension: 'pdf',
+      dataBase64
+    })
+    return true
+  }
+
   private async downloadAsPdf(svgString: string, downloadName: string) {
     const parser = new DOMParser()
     const svgDoc = parser.parseFromString(svgString, 'image/svg+xml')
@@ -76,6 +114,14 @@ export class AcApPdfConvertor {
       width: vbWidth,
       height: vbHeight
     })
+
+    try {
+      if (await this.saveWithDesktopDialog(pdf, downloadName)) return
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      window.alert(`PDF export failed.\n\n${message}`)
+      throw error
+    }
 
     pdf.save(downloadName)
   }
