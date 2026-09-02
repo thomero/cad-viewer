@@ -1,0 +1,61 @@
+name: Windows Desktop Build
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - 'packages/cad-viewer-windows/**'
+      - 'packages/cad-viewer/**'
+      - 'packages/cad-viewer-example/**'
+      - 'packages/cad-simple-viewer/**'
+      - 'packages/three-renderer/**'
+      - '.github/workflows/windows-build.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build-windows:
+    name: Build Windows x64
+    runs-on: windows-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 10.33.4
+          cache: true
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install JavaScript dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build Windows application
+        working-directory: packages/cad-viewer-windows
+        run: pnpm dlx @tauri-apps/cli@2.11.4 build --bundles nsis
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
+
+      - name: Upload Windows build
+        uses: actions/upload-artifact@v6
+        with:
+          name: CAD-Viewer-Windows-x64
+          path: |
+            packages/cad-viewer-windows/src-tauri/target/release/cad-viewer-windows.exe
+            packages/cad-viewer-windows/src-tauri/target/release/bundle/nsis/*.exe
+          if-no-files-found: error
+          retention-days: 7

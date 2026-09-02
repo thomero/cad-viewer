@@ -1,0 +1,12 @@
+[package]
+name = "cad-viewer-windows"
+version = "0.1.0"
+description = "Windows desktop host for CAD Viewer"
+authors = ["Thomas Moudouros Ltd"]
+edition = "2021"
+
+[build-dependencies]
+tauri-build = { version = "=2.6.3", features = [] }
+
+[dependencies]
+tauri = { version = "=2.11.5", features = [] }
