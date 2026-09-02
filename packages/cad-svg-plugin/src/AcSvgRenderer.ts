@@ -23,6 +23,7 @@ import {
   AcGiSubEntityTraits,
   AcGiTextStyle
 } from '@mlightcad/data-model'
+import { FontManager } from '@mlightcad/mtext-renderer'
 
 import { AcSvgArea } from './AcSvgArea'
 import { AcSvgCircArc } from './AcSvgCircArc'
@@ -33,7 +34,7 @@ import { AcSvgGroup } from './AcSvgGroup'
 import { AcSvgImage } from './AcSvgImage'
 import { AcSvgLine } from './AcSvgLine'
 import { AcSvgLineSegments } from './AcSvgLineSegments'
-import { AcSvgMText } from './AcSvgMText'
+import { AcSvgMTextVector } from './AcSvgMTextVector'
 import { AcSvgPoint } from './AcSvgPoint'
 import { AcSvgShape } from './AcSvgShape'
 import { AcSvgStyleContext, AcSvgStyleUtil } from './AcSvgStyleUtil'
@@ -61,6 +62,7 @@ export class AcSvgRenderer implements AcGiRenderer<AcSvgEntity> {
   private _foregroundColor = 0x000000
   private _showLineWeight = false
   private _pendingImages: Promise<void>[]
+  private _pendingText: Promise<void>[]
   private readonly _context: AcGiContext
 
   constructor() {
@@ -68,6 +70,7 @@ export class AcSvgRenderer implements AcGiRenderer<AcSvgEntity> {
     this._bbox = new AcGeBox2d()
     this._fontMapping = {}
     this._pendingImages = []
+    this._pendingText = []
     this._context = AcGiContext.fromBackgroundColor(
       this._currentBackgroundColor
     )
@@ -113,6 +116,9 @@ export class AcSvgRenderer implements AcGiRenderer<AcSvgEntity> {
    */
   setFontMapping(mapping: AcGiFontMapping) {
     this._fontMapping = mapping
+    // The vector text exporter shares FontManager with the live viewer. Keep
+    // explicit user font substitutions identical in both rendering paths.
+    FontManager.instance.setFontMapping(mapping)
   }
 
   /**
@@ -277,15 +283,19 @@ export class AcSvgRenderer implements AcGiRenderer<AcSvgEntity> {
   mtext(mtext: AcGiMTextData, style: AcGiTextStyle, _delay?: boolean) {
     const mappedFont = this._fontMapping[style.font] ?? style.font
     const resolvedStyle: AcGiTextStyle =
-      mappedFont !== style.font ? { ...style, font: mappedFont } : style
-    return this.pushEntity(
-      new AcSvgMText(
-        mtext,
-        resolvedStyle,
-        this._subEntityTraits,
-        this.styleContext
-      )
+      mappedFont !== style.font ? { ...style, font: mappedFont } : { ...style }
+    const traits: AcGiSubEntityTraits = {
+      ...this._subEntityTraits,
+      color: this._subEntityTraits.color.clone()
+    }
+    const { entity, pending } = AcSvgMTextVector.begin(
+      mtext,
+      resolvedStyle,
+      traits,
+      this.styleContext
     )
+    this._pendingText.push(pending)
+    return this.pushEntity(entity)
   }
 
   /**
@@ -319,16 +329,16 @@ export class AcSvgRenderer implements AcGiRenderer<AcSvgEntity> {
   }
 
   /**
-   * Exports accumulated SVG markup. Awaits any pending raster images first.
+   * Exports accumulated SVG markup. Awaits asynchronous fonts/images first.
    */
   async exportAsync(): Promise<string> {
-    await Promise.all(this._pendingImages)
+    await Promise.all([...this._pendingImages, ...this._pendingText])
     return this.export()
   }
 
   /**
-   * Synchronous export. Raster images added via {@link image} may be missing
-   * unless {@link exportAsync} is used.
+   * Synchronous export. Asynchronous images/vector text may be missing unless
+   * {@link exportAsync} is used.
    */
   export() {
     const parts: string[] = []

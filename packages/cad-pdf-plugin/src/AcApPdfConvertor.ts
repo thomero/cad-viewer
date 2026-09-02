@@ -11,16 +11,33 @@ import { svg2pdf } from 'svg2pdf.js'
 import {
   AcApPdfPlotBounds,
   AcApPdfPlotSettings,
+  AcApPdfPlotStyle,
   DEFAULT_PDF_PLOT_SETTINGS,
   normalizePdfPlotBounds
 } from './AcApPdfPlotSettings'
+
+const DEFAULT_PLOT_LINEWEIGHT_MM = 0.18
+const MIN_TRANSFORM_SCALE = 1e-9
+
+interface SvgViewBox {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+interface RgbColor {
+  r: number
+  g: number
+  b: number
+}
 
 /**
  * Utility class for plotting CAD drawings to vector PDF.
  *
  * The exporter deliberately separates the drawing's world extents from the
- * requested plot area. This prevents one distant/stray CAD entity from making
- * the intended drawing microscopic on the paper.
+ * requested plot area. It also treats CAD lineweights as physical paper units
+ * and applies a CAD plot style before handing vectors to svg2pdf.
  */
 export class AcApPdfConvertor {
   /** Renders the requested plot area to PDF and saves it. */
@@ -82,7 +99,11 @@ export class AcApPdfConvertor {
     const db = context.doc.database
     renderer.ltscale = db.ltscale
     renderer.celtscale = db.celtscale
-    renderer.showLineWeight = !!db.lwdisplay
+
+    // LWDISPLAY controls the interactive screen, not plotting. The SVG carries
+    // the CAD physical lineweight as metadata and saveAsPdf resolves it once the
+    // final paper scale is known.
+    renderer.showLineWeight = false
     renderer.setFontMapping(AcApSettingManager.instance.fontMapping)
 
     // PDF is a printable document, not a screenshot of the dark CAD canvas.
@@ -160,6 +181,10 @@ export class AcApPdfConvertor {
       throw new Error('PDF export failed because the generated SVG is invalid')
     }
 
+    // Apply colours while the paper-background rect is still a direct child of
+    // the root SVG, making it unambiguous which white fill must stay white.
+    this.applyPlotStyle(svgEl, settings.plotStyle)
+
     if (plotBounds) {
       this.applyPlotBounds(svgEl, plotBounds)
     }
@@ -185,18 +210,23 @@ export class AcApPdfConvertor {
 
     // Fit to paper while preserving CAD aspect ratio. Drawing units are never
     // treated as millimetres; they only determine the plot aspect ratio.
-    const scale = Math.min(
+    const paperScale = Math.min(
       availableWidth / viewBox.width,
       availableHeight / viewBox.height
     )
-    const drawWidth = viewBox.width * scale
-    const drawHeight = viewBox.height * scale
+    const drawWidth = viewBox.width * paperScale
+    const drawHeight = viewBox.height * paperScale
     const x = settings.centerPlot
       ? (pageWidth - drawWidth) / 2
       : settings.marginMm
     const y = settings.centerPlot
       ? (pageHeight - drawHeight) / 2
       : settings.marginMm
+
+    // Convert physical CAD lineweights (mm on paper) into SVG user units only
+    // after final paperScale is known. This is the key separation between model
+    // geometry size and plotted stroke thickness.
+    this.applyPhysicalLineweights(svgEl, paperScale)
 
     await svg2pdf(svgEl, pdf, {
       x,
@@ -209,7 +239,7 @@ export class AcApPdfConvertor {
     await saveExportBlob(blob, downloadName, 'pdf')
   }
 
-  private readViewBox(svgEl: SVGSVGElement) {
+  private readViewBox(svgEl: SVGSVGElement): SvgViewBox {
     const values = svgEl
       .getAttribute('viewBox')
       ?.trim()
@@ -232,6 +262,180 @@ export class AcApPdfConvertor {
       width: Math.abs(values[2]),
       height: Math.abs(values[3])
     }
+  }
+
+  /**
+   * Applies monochrome/grayscale plotting without destroying paper-coloured
+   * wipeouts/background masks. Color mode leaves CAD colours untouched.
+   */
+  private applyPlotStyle(svgEl: SVGSVGElement, plotStyle: AcApPdfPlotStyle) {
+    if (plotStyle === 'color') {
+      return
+    }
+
+    const paperBackground = Array.from(svgEl.children).find(
+      child => child.tagName.toLowerCase() === 'rect'
+    )
+    const attributes = ['stroke', 'fill', 'stop-color'] as const
+    const elements = svgEl.querySelectorAll<SVGElement>('*')
+
+    for (const element of Array.from(elements)) {
+      for (const attribute of attributes) {
+        const value = element.getAttribute(attribute)
+        if (!value || this.isNonColorPaint(value)) {
+          continue
+        }
+
+        const preservePaperColor =
+          element === paperBackground ||
+          element.getAttribute('data-cad-background-fill') === 'true'
+        if (preservePaperColor && attribute === 'fill') {
+          element.setAttribute(attribute, '#ffffff')
+          continue
+        }
+
+        if (plotStyle === 'monochrome') {
+          element.setAttribute(attribute, '#000000')
+          continue
+        }
+
+        const rgb = this.parseColor(value)
+        if (rgb) {
+          const gray = Math.round(
+            0.2126 * rgb.r + 0.7152 * rgb.g + 0.0722 * rgb.b
+          )
+          const hex = gray.toString(16).padStart(2, '0')
+          element.setAttribute(attribute, `#${hex}${hex}${hex}`)
+        }
+      }
+    }
+  }
+
+  private isNonColorPaint(value: string): boolean {
+    const normalized = value.trim().toLowerCase()
+    return (
+      normalized === 'none' ||
+      normalized === 'transparent' ||
+      normalized.startsWith('url(')
+    )
+  }
+
+  private parseColor(value: string): RgbColor | undefined {
+    const normalized = value.trim().toLowerCase()
+    if (normalized === 'black') {
+      return { r: 0, g: 0, b: 0 }
+    }
+    if (normalized === 'white') {
+      return { r: 255, g: 255, b: 255 }
+    }
+
+    const shortHex = /^#([0-9a-f]{3})$/i.exec(normalized)
+    if (shortHex) {
+      const [r, g, b] = shortHex[1].split('').map(char =>
+        parseInt(`${char}${char}`, 16)
+      )
+      return { r, g, b }
+    }
+
+    const hex = /^#([0-9a-f]{6})$/i.exec(normalized)
+    if (hex) {
+      return {
+        r: parseInt(hex[1].slice(0, 2), 16),
+        g: parseInt(hex[1].slice(2, 4), 16),
+        b: parseInt(hex[1].slice(4, 6), 16)
+      }
+    }
+
+    const rgb = /^rgba?\(\s*([\d.]+)\s*[, ]\s*([\d.]+)\s*[, ]\s*([\d.]+)/i.exec(
+      normalized
+    )
+    if (rgb) {
+      return {
+        r: Math.min(255, Math.max(0, Number(rgb[1]))),
+        g: Math.min(255, Math.max(0, Number(rgb[2]))),
+        b: Math.min(255, Math.max(0, Number(rgb[3])))
+      }
+    }
+
+    return undefined
+  }
+
+  /**
+   * Rewrites all stroked SVG primitives so their final PDF width matches the
+   * physical CAD lineweight in millimetres. Nested INSERT/block transforms are
+   * compensated so scaling a block does not scale its plotted lineweight.
+   */
+  private applyPhysicalLineweights(svgEl: SVGSVGElement, paperScale: number) {
+    if (!Number.isFinite(paperScale) || paperScale <= 0) {
+      throw new Error('PDF export failed because the calculated paper scale is invalid.')
+    }
+
+    const elements = svgEl.querySelectorAll<SVGElement>('[stroke]')
+    for (const element of Array.from(elements)) {
+      const stroke = element.getAttribute('stroke')?.trim().toLowerCase()
+      if (!stroke || stroke === 'none' || stroke === 'transparent') {
+        continue
+      }
+
+      const rawLineweight = Number(
+        element.getAttribute('data-cad-lineweight-mm') ??
+          DEFAULT_PLOT_LINEWEIGHT_MM
+      )
+      const lineweightMm =
+        Number.isFinite(rawLineweight) && rawLineweight > 0
+          ? rawLineweight
+          : DEFAULT_PLOT_LINEWEIGHT_MM
+      const transformScale = this.cumulativeTransformScale(element, svgEl)
+      const svgWidth = lineweightMm / (paperScale * transformScale)
+
+      element.setAttribute('stroke-width', String(svgWidth))
+      element.removeAttribute('vector-effect')
+      element.removeAttribute('data-cad-lineweight-mm')
+    }
+  }
+
+  /** Geometric-mean scale from nested SVG transforms; exact for uniform scales. */
+  private cumulativeTransformScale(element: Element, root: Element): number {
+    let scale = 1
+    let current: Element | null = element
+
+    while (current && current !== root) {
+      scale *= this.transformScale(current.getAttribute('transform'))
+      current = current.parentElement
+    }
+
+    return Math.max(MIN_TRANSFORM_SCALE, scale)
+  }
+
+  private transformScale(transform: string | null): number {
+    if (!transform) {
+      return 1
+    }
+
+    let scale = 1
+    const regex = /(matrix|scale)\s*\(([^)]*)\)/gi
+    let match: RegExpExecArray | null
+    while ((match = regex.exec(transform)) != null) {
+      const values = match[2]
+        .trim()
+        .split(/[\s,]+/)
+        .filter(Boolean)
+        .map(Number)
+      if (!values.every(Number.isFinite)) {
+        continue
+      }
+
+      if (match[1].toLowerCase() === 'matrix' && values.length >= 4) {
+        const determinant = values[0] * values[3] - values[1] * values[2]
+        scale *= Math.sqrt(Math.abs(determinant))
+      } else if (match[1].toLowerCase() === 'scale' && values.length >= 1) {
+        const sx = values[0]
+        const sy = values.length >= 2 ? values[1] : sx
+        scale *= Math.sqrt(Math.abs(sx * sy))
+      }
+    }
+
+    return Number.isFinite(scale) && scale > 0 ? scale : 1
   }
 
   /**

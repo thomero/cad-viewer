@@ -18,7 +18,7 @@ export class AcSvgEntity implements AcGiEntity {
   private _userData: object
   protected _box: AcGeBox2d
   protected _localSvg: string
-  private _matrix?: AcGeMatrix3d
+  protected _matrix?: AcGeMatrix3d
   protected _basePoint?: AcGePoint3d
 
   constructor() {
@@ -38,7 +38,18 @@ export class AcSvgEntity implements AcGiEntity {
     return this._box
   }
   set box(value: AcGeBox2d) {
+    this.setLocalBox(value)
+  }
+
+  /**
+   * Replaces an entity's untransformed bounds and reapplies its accumulated
+   * transform. Async exporters use this after their geometry becomes available.
+   */
+  protected setLocalBox(value: AcGeBox2d) {
     this._box.copy(value)
+    if (this._matrix) {
+      AcSvgMatrixUtil.transformBox(this._box, this._matrix)
+    }
   }
 
   get basePoint() {
