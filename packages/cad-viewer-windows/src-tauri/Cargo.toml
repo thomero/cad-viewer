@@ -1,6 +1,6 @@
 [package]
 name = "cad-viewer-windows"
-version = "0.2.0"
+version = "0.2.1"
 description = "Windows desktop CAD viewer and editor for DWG and DXF drawings"
 authors = ["Thomas Moudouros Ltd"]
 edition = "2021"
@@ -9,6 +9,7 @@ edition = "2021"
 tauri-build = { version = "=2.6.3", features = [] }
 
 [dependencies]
+base64 = "0.22"
 rfd = "0.15"
 tauri = { version = "=2.11.5", features = [] }
 tauri-plugin-single-instance = "2"
