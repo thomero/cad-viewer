@@ -1,6 +1,6 @@
 [package]
 name = "cad-viewer-windows"
-version = "0.2.1"
+version = "0.3.0"
 description = "Windows desktop CAD viewer and editor for DWG and DXF drawings"
 authors = ["Thomas Moudouros Ltd"]
 edition = "2021"
