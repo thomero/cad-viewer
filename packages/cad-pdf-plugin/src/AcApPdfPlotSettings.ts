@@ -1,0 +1,65 @@
+export type AcApPdfPlotArea =
+  | 'currentView'
+  | 'window'
+  | 'selection'
+  | 'extents'
+
+export type AcApPdfPaperSize = 'a4' | 'a3' | 'a2' | 'a1' | 'a0'
+
+export type AcApPdfOrientation = 'landscape' | 'portrait' | 'auto'
+
+export type AcApPdfScaleMode = 'fit'
+
+/** Axis-aligned CAD world bounds used as the PDF plot window. */
+export interface AcApPdfPlotBounds {
+  minX: number
+  minY: number
+  maxX: number
+  maxY: number
+}
+
+/**
+ * User-facing PDF plot settings.
+ *
+ * `windowBounds` is populated only after the user picks a Window plot area.
+ */
+export interface AcApPdfPlotSettings {
+  plotArea: AcApPdfPlotArea
+  paperSize: AcApPdfPaperSize
+  orientation: AcApPdfOrientation
+  scaleMode: AcApPdfScaleMode
+  centerPlot: boolean
+  marginMm: number
+  windowBounds?: AcApPdfPlotBounds
+}
+
+/** First-run defaults chosen for engineering / architectural drawings. */
+export const DEFAULT_PDF_PLOT_SETTINGS: AcApPdfPlotSettings = {
+  plotArea: 'currentView',
+  paperSize: 'a3',
+  orientation: 'landscape',
+  scaleMode: 'fit',
+  centerPlot: true,
+  marginMm: 10
+}
+
+/** Returns finite, ordered, non-zero bounds or `undefined` for invalid input. */
+export function normalizePdfPlotBounds(
+  bounds: AcApPdfPlotBounds
+): AcApPdfPlotBounds | undefined {
+  const values = [bounds.minX, bounds.minY, bounds.maxX, bounds.maxY]
+  if (!values.every(Number.isFinite)) {
+    return undefined
+  }
+
+  const minX = Math.min(bounds.minX, bounds.maxX)
+  const minY = Math.min(bounds.minY, bounds.maxY)
+  const maxX = Math.max(bounds.minX, bounds.maxX)
+  const maxY = Math.max(bounds.minY, bounds.maxY)
+
+  if (maxX - minX <= Number.EPSILON || maxY - minY <= Number.EPSILON) {
+    return undefined
+  }
+
+  return { minX, minY, maxX, maxY }
+}
