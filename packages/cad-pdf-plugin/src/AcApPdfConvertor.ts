@@ -8,6 +8,8 @@ import { AcSvgRenderer } from '@mlightcad/cad-svg-plugin'
 import { jsPDF } from 'jspdf'
 import { svg2pdf } from 'svg2pdf.js'
 
+const PDF_MARGIN_MM = 10
+
 /**
  * Utility class for converting CAD drawings to PDF format.
  *
@@ -15,7 +17,7 @@ import { svg2pdf } from 'svg2pdf.js'
  * vector PDF using jsPDF + svg2pdf.js.
  */
 export class AcApPdfConvertor {
-  /** Renders the current drawing to PDF and saves it. */
+  /** Renders the current drawing (or current selection) to PDF and saves it. */
   async convert(context: AcApContext) {
     const svgString = await this.buildSvg(context)
     const downloadName = resolveExportDownloadName(
@@ -28,14 +30,25 @@ export class AcApPdfConvertor {
   private async buildSvg(context: AcApContext): Promise<string> {
     AcSvgRenderer.prepareExport()
 
-    const entities =
-      context.doc.database.tables.blockTable.modelSpace.newIterator()
     const renderer = new AcSvgRenderer()
     this.configureRenderer(renderer, context)
 
-    for (const entity of entities) {
-      entity.worldDraw(renderer)
+    const selectedIds = context.view.selectionSet.ids
+    if (selectedIds.length > 0) {
+      // Desktop users reasonably expect a preselection to define the plot
+      // window. Export only those database entities when a selection exists.
+      const selectedEntities = context.doc.entityService.getEntitiesByIds(selectedIds)
+      for (const entity of selectedEntities) {
+        entity.worldDraw(renderer)
+      }
+    } else {
+      const entities =
+        context.doc.database.tables.blockTable.modelSpace.newIterator()
+      for (const entity of entities) {
+        entity.worldDraw(renderer)
+      }
     }
+
     return renderer.exportAsync()
   }
 
@@ -46,10 +59,10 @@ export class AcApPdfConvertor {
     renderer.showLineWeight = !!db.lwdisplay
     renderer.setFontMapping(AcApSettingManager.instance.fontMapping)
 
-    const view = context.view as { backgroundColor?: number } | undefined
-    const bg = view?.backgroundColor ?? 0xffffff
-    renderer.currentBackgroundColor = bg
-    renderer.changeForeground(bg === 0 ? 0xffffff : 0x000000)
+    // PDF is a printable document, not a screenshot of the dark CAD canvas.
+    // Always use white paper and resolve ACI 7/foreground geometry as black.
+    renderer.currentBackgroundColor = 0xffffff
+    renderer.changeForeground(0x000000)
   }
 
   private async saveAsPdf(svgString: string, downloadName: string) {
@@ -72,17 +85,32 @@ export class AcApPdfConvertor {
         : 210
 
     const orientation = vbWidth >= vbHeight ? 'landscape' : 'portrait'
+
+    // Never map CAD world units directly to PDF millimetres. Large architectural
+    // drawings can be thousands of drawing units wide; jsPDF clamps oversized
+    // pages to 14,400 pt, which leaves the actual SVG clipped outside the page.
+    // Fit the vector drawing onto a standard A3 sheet instead.
     const pdf = new jsPDF({
       orientation,
       unit: 'mm',
-      format: [vbWidth, vbHeight]
+      format: 'a3'
     })
 
+    const pageWidth = pdf.internal.pageSize.getWidth()
+    const pageHeight = pdf.internal.pageSize.getHeight()
+    const availableWidth = Math.max(1, pageWidth - PDF_MARGIN_MM * 2)
+    const availableHeight = Math.max(1, pageHeight - PDF_MARGIN_MM * 2)
+    const scale = Math.min(availableWidth / vbWidth, availableHeight / vbHeight)
+    const drawWidth = vbWidth * scale
+    const drawHeight = vbHeight * scale
+    const x = (pageWidth - drawWidth) / 2
+    const y = (pageHeight - drawHeight) / 2
+
     await svg2pdf(svgEl, pdf, {
-      x: 0,
-      y: 0,
-      width: vbWidth,
-      height: vbHeight
+      x,
+      y,
+      width: drawWidth,
+      height: drawHeight
     })
 
     const blob = pdf.output('blob')
