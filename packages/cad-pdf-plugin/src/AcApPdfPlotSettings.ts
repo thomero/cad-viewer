@@ -10,6 +10,9 @@ export type AcApPdfOrientation = 'landscape' | 'portrait' | 'auto'
 
 export type AcApPdfScaleMode = 'fit'
 
+/** CAD-style colour treatment applied while plotting to PDF. */
+export type AcApPdfPlotStyle = 'monochrome' | 'grayscale' | 'color'
+
 /** Axis-aligned CAD world bounds used as the PDF plot window. */
 export interface AcApPdfPlotBounds {
   minX: number
@@ -28,6 +31,7 @@ export interface AcApPdfPlotSettings {
   paperSize: AcApPdfPaperSize
   orientation: AcApPdfOrientation
   scaleMode: AcApPdfScaleMode
+  plotStyle: AcApPdfPlotStyle
   centerPlot: boolean
   marginMm: number
   windowBounds?: AcApPdfPlotBounds
@@ -39,6 +43,7 @@ export const DEFAULT_PDF_PLOT_SETTINGS: AcApPdfPlotSettings = {
   paperSize: 'a3',
   orientation: 'landscape',
   scaleMode: 'fit',
+  plotStyle: 'monochrome',
   centerPlot: true,
   marginMm: 10
 }
