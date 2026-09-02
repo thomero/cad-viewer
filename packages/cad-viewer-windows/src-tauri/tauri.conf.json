@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "identifier": "com.moudourossoftware.cadviewer",
   "build": {
-    "beforeBuildCommand": "pnpm --dir ../.. --filter @mlightcad/cad-viewer-example build",
+    "beforeBuildCommand": "pnpm --dir ../.. --filter @mlightcad/cad-viewer-example... build",
     "frontendDist": "../../cad-viewer-example/dist"
   },
   "app": {
