@@ -3,10 +3,11 @@ import {
   AcApPdfPaperSize,
   AcApPdfPlotArea,
   AcApPdfPlotSettings,
+  AcApPdfPlotStyle,
   DEFAULT_PDF_PLOT_SETTINGS
 } from './AcApPdfPlotSettings'
 
-const STORAGE_KEY = 'mlightcad.pdfPlotSettings.v1'
+const STORAGE_KEY = 'mlightcad.pdfPlotSettings.v2'
 
 interface AcApPdfPlotDialogOptions {
   hasSelection: boolean
@@ -45,7 +46,7 @@ export class AcApPdfPlotDialog {
         <div style="padding:20px 22px 14px;border-bottom:1px solid var(--ml-ui-border,#e5e7eb)">
           <div style="font-size:18px;font-weight:650">Plot to PDF</div>
           <div style="margin-top:4px;color:var(--ml-ui-text-muted,#6b7280);font-size:12px">
-            Choose what should be plotted. Current View avoids distant stray CAD entities affecting the PDF scale.
+            Choose the plot area, paper and CAD plot style. Lineweights are plotted in physical paper units.
           </div>
         </div>
 
@@ -72,6 +73,13 @@ export class AcApPdfPlotDialog {
             <option value="landscape">Landscape</option>
             <option value="portrait">Portrait</option>
             <option value="auto">Auto</option>
+          </select>
+
+          <label for="ml-pdf-plot-style" style="font-weight:600">Plot style</label>
+          <select id="ml-pdf-plot-style" style="${this.controlStyle()}">
+            <option value="monochrome">Monochrome</option>
+            <option value="grayscale">Grayscale</option>
+            <option value="color">Color</option>
           </select>
 
           <label for="ml-pdf-scale" style="font-weight:600">Scale</label>
@@ -106,6 +114,9 @@ export class AcApPdfPlotDialog {
     const orientation = dialog.querySelector<HTMLSelectElement>(
       '#ml-pdf-orientation'
     )!
+    const plotStyle = dialog.querySelector<HTMLSelectElement>(
+      '#ml-pdf-plot-style'
+    )!
     const margin = dialog.querySelector<HTMLInputElement>('#ml-pdf-margin')!
     const center = dialog.querySelector<HTMLInputElement>('#ml-pdf-center')!
     const cancel = dialog.querySelector<HTMLButtonElement>('[data-action="cancel"]')!
@@ -116,6 +127,7 @@ export class AcApPdfPlotDialog {
     plotArea.value = initial.plotArea
     paper.value = initial.paperSize
     orientation.value = initial.orientation
+    plotStyle.value = initial.plotStyle
     margin.value = String(initial.marginMm)
     center.checked = initial.centerPlot
 
@@ -132,6 +144,7 @@ export class AcApPdfPlotDialog {
         plotArea: plotArea.value as AcApPdfPlotArea,
         paperSize: paper.value as AcApPdfPaperSize,
         orientation: orientation.value as AcApPdfOrientation,
+        plotStyle: plotStyle.value as AcApPdfPlotStyle,
         scaleMode: 'fit',
         centerPlot: center.checked,
         marginMm: safeMargin
@@ -168,6 +181,9 @@ export class AcApPdfPlotDialog {
           orientation: this.isOrientation(parsed.orientation)
             ? parsed.orientation
             : settings.orientation,
+          plotStyle: this.isPlotStyle(parsed.plotStyle)
+            ? parsed.plotStyle
+            : settings.plotStyle,
           scaleMode: 'fit',
           centerPlot:
             typeof parsed.centerPlot === 'boolean'
@@ -196,6 +212,7 @@ export class AcApPdfPlotDialog {
         plotArea: settings.plotArea,
         paperSize: settings.paperSize,
         orientation: settings.orientation,
+        plotStyle: settings.plotStyle,
         scaleMode: 'fit',
         centerPlot: settings.centerPlot,
         marginMm: settings.marginMm
@@ -216,6 +233,10 @@ export class AcApPdfPlotDialog {
 
   private static isOrientation(value: unknown): value is AcApPdfOrientation {
     return ['landscape', 'portrait', 'auto'].includes(String(value))
+  }
+
+  private static isPlotStyle(value: unknown): value is AcApPdfPlotStyle {
+    return ['monochrome', 'grayscale', 'color'].includes(String(value))
   }
 
   private static controlStyle() {
