@@ -106,10 +106,17 @@ export class AcSvgStyleUtil {
     traits: AcGiSubEntityTraits,
     ctx: AcSvgStyleContext
   ): Record<string, string> {
+    const isBackgroundFill =
+      traits.color.isForeground && this.isSolidBackgroundHatch(traits)
     const color = this.rgbToHex(this.resolveRgb(traits, ctx, 'fill'))
     const attrs: Record<string, string> = {
       fill: color,
       stroke: 'none'
+    }
+    if (isBackgroundFill) {
+      // Wipeout/background hatches must remain paper-coloured even when the
+      // user selects a monochrome plot style.
+      attrs['data-cad-background-fill'] = 'true'
     }
 
     const opacity = this.resolveOpacity(traits)
