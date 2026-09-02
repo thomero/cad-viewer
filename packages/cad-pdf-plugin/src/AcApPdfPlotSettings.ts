@@ -43,6 +43,8 @@ export const DEFAULT_PDF_PLOT_SETTINGS: AcApPdfPlotSettings = {
   marginMm: 10
 }
 
+const MIN_PLOT_SPAN = 1e-12
+
 /** Returns finite, ordered, non-zero bounds or `undefined` for invalid input. */
 export function normalizePdfPlotBounds(
   bounds: AcApPdfPlotBounds
@@ -57,7 +59,7 @@ export function normalizePdfPlotBounds(
   const maxX = Math.max(bounds.minX, bounds.maxX)
   const maxY = Math.max(bounds.minY, bounds.maxY)
 
-  if (maxX - minX <= Number.EPSILON || maxY - minY <= Number.EPSILON) {
+  if (maxX - minX <= MIN_PLOT_SPAN || maxY - minY <= MIN_PLOT_SPAN) {
     return undefined
   }
 
