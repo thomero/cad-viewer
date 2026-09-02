@@ -1,3 +1,5 @@
+import { eventBus } from '@mlightcad/cad-simple-viewer'
+
 type UnlistenFn = () => void
 
 type TauriEvent<T> = {
@@ -73,14 +75,35 @@ export const exitDesktopApp = async (): Promise<void> => {
   await api.core.invoke('desktop_exit_app')
 }
 
+/**
+ * Listens for both Explorer/single-instance file opens and the CAD `OPEN`
+ * command. The installed Windows application uses one native file-opening path
+ * everywhere, so File > Open, Ctrl+O and Explorer behave consistently.
+ */
 export const listenForDesktopFileOpen = async (
   handler: (path: string) => void
 ): Promise<UnlistenFn> => {
   const api = tauri()
   if (!api) return () => undefined
-  return api.event.listen<string>('desktop-open-file', event => {
-    if (typeof event.payload === 'string') handler(event.payload)
-  })
+
+  const unlistenTauri = await api.event.listen<string>(
+    'desktop-open-file',
+    event => {
+      if (typeof event.payload === 'string') handler(event.payload)
+    }
+  )
+
+  const handleCadOpenCommand = () => {
+    void pickDesktopCadFile().then(path => {
+      if (path) handler(path)
+    })
+  }
+  eventBus.on('open-file', handleCadOpenCommand)
+
+  return () => {
+    unlistenTauri()
+    eventBus.off('open-file', handleCadOpenCommand)
+  }
 }
 
 export {}
