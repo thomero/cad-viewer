@@ -56,6 +56,12 @@ fn is_document_dirty(app: &AppHandle) -> bool {
         .unwrap_or(false)
 }
 
+fn clear_document_dirty(app: &AppHandle) {
+    if let Ok(mut dirty) = app.state::<DesktopState>().document_dirty.lock() {
+        *dirty = false;
+    }
+}
+
 fn confirm_discard_changes() -> bool {
     rfd::MessageDialog::new()
         .set_title("CAD Viewer")
@@ -148,9 +154,7 @@ fn desktop_set_window_title(app: AppHandle, title: String) -> Result<(), String>
 
     // A newly opened/new document starts with a clean undo history. Subsequent
     // database/session edits update this through desktop_set_document_dirty.
-    if let Ok(mut dirty) = app.state::<DesktopState>().document_dirty.lock() {
-        *dirty = false;
-    }
+    clear_document_dirty(&app);
 
     window
         .set_title(&title)
@@ -166,8 +170,13 @@ fn desktop_set_document_dirty(state: State<'_, DesktopState>, dirty: bool) {
 
 #[tauri::command]
 fn desktop_exit_app(app: AppHandle) -> bool {
-    if is_document_dirty(&app) && !confirm_discard_changes() {
-        return false;
+    if is_document_dirty(&app) {
+        if !confirm_discard_changes() {
+            return false;
+        }
+        // Prevent the subsequent native close phase from presenting the same
+        // discard confirmation a second time after the user already approved it.
+        clear_document_dirty(&app);
     }
     app.exit(0);
     true
