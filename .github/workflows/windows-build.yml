@@ -44,6 +44,17 @@ jobs:
       - name: Install JavaScript dependencies
         run: pnpm install --frozen-lockfile
 
+      # The web example normally reads fonts/templates/sample CAD support data
+      # from the mlightcad CDN. The Windows build carries the same public data
+      # locally so the installed desktop app does not depend on that CDN.
+      - name: Bundle CAD runtime data for offline desktop use
+        shell: pwsh
+        run: |
+          $target = 'packages/cad-viewer-example/public/cad-data'
+          if (Test-Path $target) { Remove-Item $target -Recurse -Force }
+          git clone --depth 1 https://github.com/mlightcad/cad-data.git $target
+          Remove-Item "$target/.git" -Recurse -Force
+
       - name: Generate icon source
         working-directory: packages/cad-viewer-windows
         shell: pwsh
@@ -58,6 +69,16 @@ jobs:
         run: pnpm dlx @tauri-apps/cli@2.11.4 build --bundles nsis
         env:
           NODE_OPTIONS: --max-old-space-size=4096
+
+      - name: Verify Windows package
+        shell: pwsh
+        run: |
+          $app = 'packages/cad-viewer-windows/src-tauri/target/release/cad-viewer-windows.exe'
+          $installer = Get-ChildItem 'packages/cad-viewer-windows/src-tauri/target/release/bundle/nsis/*.exe' | Select-Object -First 1
+          if (-not (Test-Path $app)) { throw 'Desktop executable was not produced.' }
+          if (-not $installer) { throw 'NSIS installer was not produced.' }
+          Write-Host "Executable: $app"
+          Write-Host "Installer: $($installer.FullName)"
 
       - name: Upload Windows build
         uses: actions/upload-artifact@v6
