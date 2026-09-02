@@ -1,4 +1,8 @@
-import { eventBus } from '@mlightcad/cad-simple-viewer'
+import {
+  AcApDocManager,
+  eventBus,
+  getSessionUndo
+} from '@mlightcad/cad-simple-viewer'
 
 type UnlistenFn = () => void
 
@@ -69,16 +73,25 @@ export const setDesktopWindowTitle = async (title: string): Promise<void> => {
   await api.core.invoke('desktop_set_window_title', { title })
 }
 
-export const exitDesktopApp = async (): Promise<void> => {
+const setDesktopDocumentDirty = async (dirty: boolean): Promise<void> => {
   const api = tauri()
   if (!api) return
-  await api.core.invoke('desktop_exit_app')
+  await api.core.invoke('desktop_set_document_dirty', { dirty })
+}
+
+export const exitDesktopApp = async (): Promise<boolean> => {
+  const api = tauri()
+  if (!api) return false
+  return api.core.invoke<boolean>('desktop_exit_app')
 }
 
 /**
  * Listens for both Explorer/single-instance file opens and the CAD `OPEN`
  * command. The installed Windows application uses one native file-opening path
  * everywhere, so File > Open, Ctrl+O and Explorer behave consistently.
+ *
+ * This listener also mirrors the CAD session undo state into the native host so
+ * Windows close/Alt+F4/Quit can protect unsaved edits.
  */
 export const listenForDesktopFileOpen = async (
   handler: (path: string) => void
@@ -98,11 +111,23 @@ export const listenForDesktopFileOpen = async (
       if (path) handler(path)
     })
   }
+
+  const syncDirtyState = () => {
+    try {
+      const db = AcApDocManager.instance.curDocument.database
+      void setDesktopDocumentDirty(getSessionUndo().canUndo(db))
+    } catch {
+      void setDesktopDocumentDirty(false)
+    }
+  }
+
   eventBus.on('open-file', handleCadOpenCommand)
+  eventBus.on('undo-stack-changed', syncDirtyState)
 
   return () => {
     unlistenTauri()
     eventBus.off('open-file', handleCadOpenCommand)
+    eventBus.off('undo-stack-changed', syncDirtyState)
   }
 }
 
