@@ -7,14 +7,15 @@ PDF **export** and **import** plugin for [`@mlightcad/cad-simple-viewer`](../cad
 
 | Command | Description |
 |---------|-------------|
-| `cpdf` | Export the current drawing to a vector PDF (SVG pipeline → jsPDF) |
+| `cpdf` | Export the current drawing or current selection to a vector PDF |
 | `ipdf` | Import vector geometry from a PDF file into model space |
 
 The plugin is designed for **lazy loading** so PDF libraries (`jspdf`, `pdfjs-dist`, `svg2pdf.js`) are only downloaded when a user runs `cpdf` or `ipdf`.
 
 ## Key features
 
-- **Vector PDF export** — renders model-space entities via `@mlightcad/cad-svg-plugin`, then converts SVG to PDF with `svg2pdf.js`
+- **Vector PDF export** — renders selected model-space entities when a selection exists; otherwise renders the full model space via `@mlightcad/cad-svg-plugin`
+- **Printable output** — exports on a white A3 sheet, automatically chooses portrait/landscape, and fits vector extents with margins rather than mapping CAD world units directly to PDF millimetres
 - **PDF import** — parses vector paths from the first page of a PDF (lines, polylines, Bézier curves) and appends CAD entities
 - **Plugin API** — implements `AcApPlugin`; register once with `registerLazyPdfPlugin`
 - **Framework-agnostic** — no Vue/React dependency; works anywhere `cad-simple-viewer` runs
@@ -79,7 +80,7 @@ AcApDocManager.instance.pluginManager.registerLazyPlugin({
 After registration, users (or your UI) invoke commands through the editor:
 
 ```typescript
-// Export current drawing to PDF
+// Export current selection when entities are selected; otherwise export all model space
 await AcApDocManager.instance.editor.executeCommand('cpdf')
 
 // Open file picker and import PDF vectors
@@ -119,13 +120,14 @@ await new AcApPdfImportConvertor().convert(context, buffer, 1) // page 1
 
 ### Export (`cpdf`)
 
-1. Iterate model-space entities and render with `AcSvgRenderer` (respects linetype scale, lineweight display, font mapping, background/foreground colors).
-2. Parse the SVG and pass it to `svg2pdf.js` inside a `jsPDF` document sized to the SVG viewBox.
-3. Trigger a browser download as `drawing.pdf`.
+1. If the current view has selected database entities, render only that selection. Otherwise iterate all model-space entities.
+2. Render with `AcSvgRenderer`, respecting linetype scale, lineweight display, and font mapping while using white paper / black foreground semantics appropriate for a printable document.
+3. Parse the generated SVG and fit its vector extents onto an A3 PDF page with a 10 mm margin. Orientation is selected automatically from the drawing aspect ratio.
+4. Save the PDF through the shared browser/desktop export path.
 
 ### Import (`ipdf`)
 
-1. Show a native file picker (`.pdf`).
+1. Show a file picker (`.pdf`).
 2. Use `pdfjs-dist` to read operator lists from the selected page.
 3. Convert path operators (move, line, cubic Bézier, close) into `AcDbLine` / `AcDbPolyline` entities in model space.
 
@@ -153,7 +155,7 @@ Import is **vector-only**; raster/scanned PDF pages produce no entities. Only th
 | `src/AcApConvertToPdfCmd.ts` | `cpdf` command |
 | `src/AcApImportPdfCmd.ts` | `ipdf` command |
 | `src/AcApPdfConvertor.ts` | Export pipeline (SVG renderer + jsPDF) |
-| `src/AcApPdfImportConvertor.ts` | Import pipeline (pdf.js operator parsing) |
+| `src/AcApPdfImportConvertor.ts` | PDF → CAD entities import utility |
 
 ## Role in MLightCAD
 
