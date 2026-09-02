@@ -10,7 +10,11 @@ on:
       - 'packages/cad-viewer/**'
       - 'packages/cad-viewer-example/**'
       - 'packages/cad-simple-viewer/**'
+      - 'packages/cad-pdf-plugin/**'
+      - 'packages/cad-svg-plugin/**'
+      - 'packages/cad-html-plugin/**'
       - 'packages/three-renderer/**'
+      - 'scripts/audit-desktop.mjs'
       - '.github/workflows/windows-build.yml'
 
 permissions:
@@ -44,6 +48,9 @@ jobs:
       - name: Install JavaScript dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Audit Windows desktop compatibility
+        run: node scripts/audit-desktop.mjs
+
       # The web example normally reads fonts/templates/sample CAD support data
       # from the mlightcad CDN. The Windows build carries the same public data
       # locally so the installed desktop app does not depend on that CDN.
@@ -75,10 +82,13 @@ jobs:
         run: |
           $app = 'packages/cad-viewer-windows/src-tauri/target/release/cad-viewer-windows.exe'
           $installer = Get-ChildItem 'packages/cad-viewer-windows/src-tauri/target/release/bundle/nsis/*.exe' | Select-Object -First 1
+          $offlineData = 'packages/cad-viewer-example/dist/cad-data'
           if (-not (Test-Path $app)) { throw 'Desktop executable was not produced.' }
           if (-not $installer) { throw 'NSIS installer was not produced.' }
+          if (-not (Test-Path $offlineData)) { throw 'Offline CAD runtime data was not bundled into the desktop frontend.' }
           Write-Host "Executable: $app"
           Write-Host "Installer: $($installer.FullName)"
+          Write-Host "Offline CAD data: $offlineData"
 
       - name: Upload Windows build
         uses: actions/upload-artifact@v6
