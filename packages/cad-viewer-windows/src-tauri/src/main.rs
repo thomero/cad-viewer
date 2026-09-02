@@ -132,6 +132,11 @@ fn desktop_set_window_title(app: AppHandle, title: String) -> Result<(), String>
         .map_err(|error| format!("Failed to set window title: {error}"))
 }
 
+#[tauri::command]
+fn desktop_exit_app(app: AppHandle) {
+    app.exit(0);
+}
+
 fn focus_main_window(app: &AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.show();
@@ -159,7 +164,8 @@ fn main() {
             desktop_initial_cad_file,
             desktop_read_cad_file,
             desktop_save_export_file,
-            desktop_set_window_title
+            desktop_set_window_title,
+            desktop_exit_app
         ])
         .run(tauri::generate_context!())
         .expect("error while running CAD Viewer for Windows");
