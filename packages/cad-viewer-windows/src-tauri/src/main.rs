@@ -7,11 +7,12 @@ use std::{
 };
 
 use base64::{engine::general_purpose::STANDARD, Engine as _};
-use tauri::{ipc::Response, AppHandle, Emitter, Manager, State};
+use tauri::{ipc::Response, AppHandle, Emitter, Manager, State, WindowEvent};
 
 #[derive(Default)]
 struct DesktopState {
     initial_file: Mutex<Option<String>>,
+    document_dirty: Mutex<bool>,
 }
 
 fn normalize_cad_path(path: impl AsRef<Path>) -> Option<String> {
@@ -45,6 +46,24 @@ where
 {
     args.into_iter()
         .find_map(|value| normalize_cad_path(PathBuf::from(value.as_ref())))
+}
+
+fn is_document_dirty(app: &AppHandle) -> bool {
+    app.state::<DesktopState>()
+        .document_dirty
+        .lock()
+        .map(|value| *value)
+        .unwrap_or(false)
+}
+
+fn confirm_discard_changes() -> bool {
+    rfd::MessageDialog::new()
+        .set_title("CAD Viewer")
+        .set_description("This drawing has unsaved changes. Close without saving?")
+        .set_level(rfd::MessageLevel::Warning)
+        .set_buttons(rfd::MessageButtons::YesNo)
+        .show()
+        == rfd::MessageDialogResult::Yes
 }
 
 #[tauri::command]
@@ -127,14 +146,31 @@ fn desktop_set_window_title(app: AppHandle, title: String) -> Result<(), String>
         .get_webview_window("main")
         .ok_or_else(|| "Main window is not available".to_string())?;
 
+    // A newly opened/new document starts with a clean undo history. Subsequent
+    // database/session edits update this through desktop_set_document_dirty.
+    if let Ok(mut dirty) = app.state::<DesktopState>().document_dirty.lock() {
+        *dirty = false;
+    }
+
     window
         .set_title(&title)
         .map_err(|error| format!("Failed to set window title: {error}"))
 }
 
 #[tauri::command]
-fn desktop_exit_app(app: AppHandle) {
+fn desktop_set_document_dirty(state: State<'_, DesktopState>, dirty: bool) {
+    if let Ok(mut value) = state.document_dirty.lock() {
+        *value = dirty;
+    }
+}
+
+#[tauri::command]
+fn desktop_exit_app(app: AppHandle) -> bool {
+    if is_document_dirty(&app) && !confirm_discard_changes() {
+        return false;
+    }
     app.exit(0);
+    true
 }
 
 fn focus_main_window(app: &AppHandle) {
@@ -158,6 +194,7 @@ fn main() {
         }))
         .manage(DesktopState {
             initial_file: Mutex::new(initial_file),
+            document_dirty: Mutex::new(false),
         })
         .invoke_handler(tauri::generate_handler![
             desktop_pick_cad_file,
@@ -165,8 +202,20 @@ fn main() {
             desktop_read_cad_file,
             desktop_save_export_file,
             desktop_set_window_title,
+            desktop_set_document_dirty,
             desktop_exit_app
         ])
+        .on_window_event(|window, event| {
+            if window.label() != "main" {
+                return;
+            }
+            if let WindowEvent::CloseRequested { api, .. } = event {
+                let app = window.app_handle();
+                if is_document_dirty(app) && !confirm_discard_changes() {
+                    api.prevent_close();
+                }
+            }
+        })
         .run(tauri::generate_context!())
         .expect("error while running CAD Viewer for Windows");
 }
