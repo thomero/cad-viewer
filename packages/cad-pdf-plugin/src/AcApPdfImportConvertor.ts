@@ -20,64 +20,98 @@ const BEZIER_STEPS = 8
 /** 2D point in PDF user space before conversion to model-space mm. */
 type Point2 = { x: number; y: number }
 
-/**
- * Converts a PDF file into CAD entities appended to the current document's
- * model space.
- */
+/** Converts a PDF file into CAD entities appended to model space. */
 export class AcApPdfImportConvertor {
   /**
-   * Prompts the user to pick a PDF file and imports vector geometry.
-   *
-   * @param context - Application context for the target document
+   * Prompts the user to pick a PDF and resolves only after import completes.
+   * Returns `undefined` when the picker is cancelled.
    */
-  importFromFilePicker(context: AcApContext) {
-    const input = document.createElement('input')
-    input.type = 'file'
-    input.accept = '.pdf'
-    input.style.display = 'none'
-    document.body.appendChild(input)
+  importFromFilePicker(context: AcApContext): Promise<number | undefined> {
+    return new Promise((resolve, reject) => {
+      const input = document.createElement('input')
+      input.type = 'file'
+      input.accept = '.pdf,application/pdf'
+      input.style.display = 'none'
+      document.body.appendChild(input)
 
-    input.addEventListener('change', async () => {
-      const file = input.files?.[0]
-      document.body.removeChild(input)
-      if (!file) return
-      const buffer = await file.arrayBuffer()
-      await this.convert(context, buffer)
+      let settled = false
+      const finish = (value?: number, error?: unknown) => {
+        if (settled) return
+        settled = true
+        input.removeEventListener('change', onChange)
+        input.removeEventListener('cancel', onCancel)
+        input.remove()
+        if (error !== undefined) reject(error)
+        else resolve(value)
+      }
+
+      const onCancel = () => finish(undefined)
+      const onChange = async () => {
+        const file = input.files?.[0]
+        if (!file) {
+          finish(undefined)
+          return
+        }
+        try {
+          const buffer = await file.arrayBuffer()
+          finish(await this.convert(context, buffer))
+        } catch (error) {
+          finish(undefined, error)
+        }
+      }
+
+      input.addEventListener('change', onChange)
+      input.addEventListener('cancel', onCancel)
+      input.click()
     })
-
-    input.click()
   }
 
   /**
-   * Converts the first page of a PDF ArrayBuffer into CAD entities.
-   * @param context - Application context for the target document
-   * @param data - Raw PDF bytes
-   * @param pageNumber - 1-based page number (default: 1)
+   * Converts one PDF page into CAD entities.
+   * @returns Number of imported entities.
    */
   async convert(context: AcApContext, data: ArrayBuffer, pageNumber = 1) {
+    if (!Number.isInteger(pageNumber) || pageNumber < 1) {
+      throw new Error(`Invalid PDF page number: ${pageNumber}`)
+    }
+
+    const pdf = await pdfjsLib.getDocument({ data }).promise
     try {
-      const pdf = await pdfjsLib.getDocument({ data }).promise
+      if (pageNumber > pdf.numPages) {
+        throw new Error(
+          `PDF page ${pageNumber} does not exist (document has ${pdf.numPages} pages)`
+        )
+      }
+
       const page = await pdf.getPage(pageNumber)
-      const viewport = page.getViewport({ scale: 1 })
-      const pageHeight = viewport.height
+      try {
+        const viewport = page.getViewport({ scale: 1 })
+        const operatorList = await page.getOperatorList()
+        const entities = this.extractEntities(operatorList, viewport.height)
 
-      const operatorList = await page.getOperatorList()
-      const entities = this.extractEntities(operatorList, pageHeight)
+        if (entities.length === 0) {
+          log.warn('[PdfImport] No vector paths found in PDF page.')
+          return 0
+        }
 
-      if (entities.length === 0) {
-        log.warn('[PdfImport] No vector paths found in PDF page.')
-        return
+        const modelSpace = context.doc.database.tables.blockTable.modelSpace
+        for (const entity of entities) {
+          modelSpace.appendEntity(entity)
+        }
+
+        const dirtyView = context.view as { isDirty?: boolean }
+        if ('isDirty' in dirtyView) dirtyView.isDirty = true
+
+        log.info(`[PdfImport] Imported ${entities.length} entities from PDF.`)
+        return entities.length
+      } finally {
+        page.cleanup()
       }
-
-      const modelSpace = context.doc.database.tables.blockTable.modelSpace
-
-      for (const entity of entities) {
-        modelSpace.appendEntity(entity)
-      }
-
-      log.info(`[PdfImport] Imported ${entities.length} entities from PDF.`)
-    } catch (err) {
-      log.error('[PdfImport] Failed to import PDF:', err)
+    } catch (error) {
+      log.error('[PdfImport] Failed to import PDF:', error)
+      throw error
+    } finally {
+      await pdf.destroy()
     }
   }
 
@@ -178,7 +212,7 @@ export class AcApPdfImportConvertor {
           break
         }
         case OPS.closePath: {
-          if (current.length > 0 && subpaths.length === 0) {
+          if (current.length > 0) {
             current.push({ ...current[0] })
           }
           flush()
@@ -227,16 +261,7 @@ export class AcApPdfImportConvertor {
   }
 }
 
-/**
- * Approximates a cubic Bézier curve as a polyline.
- *
- * @param p0 - Start point
- * @param p1 - First control point
- * @param p2 - Second control point
- * @param p3 - End point
- * @param steps - Number of line segments to generate
- * @returns Sampled points along the curve (excluding `p0`)
- */
+/** Approximates a cubic Bézier curve as a polyline. */
 function cubicBezier(
   p0: Point2,
   p1: Point2,
