@@ -3,6 +3,7 @@ import { disposePreviewSubset } from '@mlightcad/three-renderer'
 
 import { AcApDocManager } from '../../app'
 import { resolveExportDownloadName } from '../../util/AcApExportFileNameUtil'
+import { saveExportBlob } from '../../util/AcApExportSaveUtil'
 import { AcTrView2d } from '../../view'
 
 export type AcApEntityPreviewExportFailure =
@@ -10,6 +11,7 @@ export type AcApEntityPreviewExportFailure =
   | 'no-bounds'
   | 'capture-failed'
   | 'download-failed'
+  | 'cancelled'
 
 export type AcApEntityPreviewExportResult =
   | { ok: true; exportedCount: number; skippedCount: number }
@@ -32,15 +34,13 @@ export type AcApEntityPreviewCaptureResult =
  */
 export class AcApEntityPreviewConvertor {
   /**
-   * Renders selected entities into one PNG and triggers a browser download.
-   *
-   * @param entityIds - Database object ids to include in the preview
-   * @param longSide - Maximum output width or height in pixels
+   * Renders selected entities into one PNG and saves it through the shared
+   * browser/desktop export path.
    */
-  export(
+  async export(
     entityIds: AcDbObjectId[],
     longSide: number
-  ): AcApEntityPreviewExportResult {
+  ): Promise<AcApEntityPreviewExportResult> {
     const capture = this.capture(entityIds, longSide)
     if (!capture.ok) {
       if (capture.reason === 'no-entities') {
@@ -52,8 +52,23 @@ export class AcApEntityPreviewConvertor {
       return { ok: false, reason: capture.reason }
     }
 
-    const downloaded = this.downloadDataUrl(capture.dataUrl)
-    if (!downloaded) {
+    try {
+      const doc = AcApDocManager.instance.curDocument
+      const downloadName = resolveExportDownloadName(
+        doc.fileName || doc.docTitle,
+        'png',
+        'entity-preview'
+      )
+      const saved = await saveExportBlob(
+        this.dataUrlToBlob(capture.dataUrl),
+        downloadName,
+        'png'
+      )
+      if (saved == null) {
+        return { ok: false, reason: 'cancelled' }
+      }
+    } catch (error) {
+      console.error('[ENTPREVIEW] Failed to save preview PNG', error)
       return { ok: false, reason: 'download-failed' }
     }
 
@@ -142,9 +157,7 @@ export class AcApEntityPreviewConvertor {
     }
   }
 
-  /**
-   * Computes width and height from a target long side while preserving aspect ratio.
-   */
+  /** Computes width and height while preserving aspect ratio. */
   private resolveOutputSize(longSide: number, aspect: number) {
     const clampedLongSide = Math.max(1, Math.round(longSide))
     const safeAspect =
@@ -163,9 +176,7 @@ export class AcApEntityPreviewConvertor {
     }
   }
 
-  /**
-   * Returns the world-space aspect ratio of one 2D bounds box.
-   */
+  /** Returns the world-space aspect ratio of one 2D bounds box. */
   private getBoundsAspect(bounds: AcGeBox2d) {
     const size = new AcGeVector2d()
     bounds.getSize(size)
@@ -174,27 +185,23 @@ export class AcApEntityPreviewConvertor {
     return width / height
   }
 
-  /**
-   * Creates a downloadable PNG file and triggers the download.
-   */
-  private downloadDataUrl(dataUrl: string) {
-    try {
-      const doc = AcApDocManager.instance.curDocument
-      const downloadName = resolveExportDownloadName(
-        doc.fileName || doc.docTitle,
-        'png',
-        'entity-preview'
-      )
-      const downloadLink = document.createElement('a')
-      downloadLink.href = dataUrl
-      downloadLink.download = downloadName
-      document.body.appendChild(downloadLink)
-      downloadLink.click()
-      document.body.removeChild(downloadLink)
-      return true
-    } catch (error) {
-      console.error('[ENTPREVIEW] Failed to download preview PNG', error)
-      return false
+  /** Converts a PNG data URL emitted by the renderer into a Blob. */
+  private dataUrlToBlob(dataUrl: string): Blob {
+    const comma = dataUrl.indexOf(',')
+    if (comma < 0) {
+      throw new Error('Preview renderer returned an invalid image data URL')
     }
+
+    const header = dataUrl.slice(0, comma)
+    const encoded = dataUrl.slice(comma + 1)
+    const mime = /^data:([^;,]+)/.exec(header)?.[1] || 'image/png'
+    const binary = header.includes(';base64')
+      ? atob(encoded)
+      : decodeURIComponent(encoded)
+    const bytes = new Uint8Array(binary.length)
+    for (let index = 0; index < binary.length; index++) {
+      bytes[index] = binary.charCodeAt(index)
+    }
+    return new Blob([bytes], { type: mime })
   }
 }
