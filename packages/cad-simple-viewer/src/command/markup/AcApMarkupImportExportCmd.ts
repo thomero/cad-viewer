@@ -5,6 +5,7 @@ import {
   AcEdPromptStringOptions
 } from '../../editor'
 import { AcApI18n } from '../../i18n'
+import { saveExportText } from '../../util/AcApExportSaveUtil'
 import { runMarkupEdit } from './AcApMarkupHistory'
 import { getMarkupPresenter } from './AcApMarkupPresenter'
 import {
@@ -13,17 +14,6 @@ import {
   stringifyMarkupSidecar
 } from './AcApMarkupSidecar'
 import { getMarkupStore } from './AcApMarkupStore'
-
-function downloadText(filename: string, text: string): void {
-  if (typeof document === 'undefined') return
-  const blob = new Blob([text], { type: 'application/json;charset=utf-8' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = filename
-  a.click()
-  URL.revokeObjectURL(url)
-}
 
 function pickJsonFile(): Promise<string | undefined> {
   return new Promise(resolve => {
@@ -34,28 +24,37 @@ function pickJsonFile(): Promise<string | undefined> {
     const input = document.createElement('input')
     input.type = 'file'
     input.accept = '.json,application/json'
+    input.style.display = 'none'
+    document.body.appendChild(input)
+
     let settled = false
+    const cleanup = () => input.remove()
     const finish = (text?: string) => {
       if (settled) return
       settled = true
+      cleanup()
       resolve(text)
     }
-    input.addEventListener('cancel', () => finish())
+
+    input.addEventListener('cancel', () => finish(), { once: true })
     input.onchange = async () => {
       const file = input.files?.[0]
       if (!file) {
         finish()
         return
       }
-      finish(await file.text())
+      try {
+        finish(await file.text())
+      } catch (error) {
+        console.error('[MarkupImport] Failed to read JSON file', error)
+        finish()
+      }
     }
     input.click()
   })
 }
 
-/**
- * Export current markups to a `{drawing}.markup.json` download.
- */
+/** Export current markups to a `{drawing}.markup.json` file. */
 export class AcApMarkupExportCmd extends AcEdCommand {
   constructor() {
     super()
@@ -69,14 +68,17 @@ export class AcApMarkupExportCmd extends AcEdCommand {
       store.drawingName = context.doc.fileName || context.doc.docTitle
     }
     const text = stringifyMarkupSidecar(store.toSidecar())
-    downloadText(markupSidecarFileName(store.drawingName), text)
-    store.markClean()
+    const saved = await saveExportText(
+      text,
+      markupSidecarFileName(store.drawingName),
+      'json',
+      'application/json;charset=utf-8'
+    )
+    if (saved != null) store.markClean()
   }
 }
 
-/**
- * Import markups from a sidecar JSON file and republish onto the view.
- */
+/** Import markups from a sidecar JSON file and republish onto the view. */
 export class AcApMarkupImportCmd extends AcEdCommand {
   constructor() {
     super()
@@ -85,7 +87,6 @@ export class AcApMarkupImportCmd extends AcEdCommand {
   }
 
   async execute(context: AcApContext) {
-    // Keep a prompt in i18n for hosts that show status text before the picker.
     void new AcEdPromptStringOptions(AcApI18n.t('jig.markup.import.chooseFile'))
     const text = await pickJsonFile()
     if (text == null) return
@@ -93,7 +94,8 @@ export class AcApMarkupImportCmd extends AcEdCommand {
     try {
       sidecar = parseMarkupSidecar(text)
     } catch (err) {
-      console.error(err)
+      console.error('[MarkupImport] Invalid markup JSON', err)
+      this.showMessage(AcApI18n.t('jig.markup.import.chooseFile'), 'error')
       return
     }
     const store = getMarkupStore()
