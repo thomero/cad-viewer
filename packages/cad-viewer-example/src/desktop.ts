@@ -67,6 +67,12 @@ export const setDesktopWindowTitle = async (title: string): Promise<void> => {
   await api.core.invoke('desktop_set_window_title', { title })
 }
 
+export const exitDesktopApp = async (): Promise<void> => {
+  const api = tauri()
+  if (!api) return
+  await api.core.invoke('desktop_exit_app')
+}
+
 export const listenForDesktopFileOpen = async (
   handler: (path: string) => void
 ): Promise<UnlistenFn> => {
