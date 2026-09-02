@@ -76,6 +76,7 @@ import {
 } from 'vue'
 
 import { AcApQuitCmd } from './commands'
+import FileUpload from './components/FileUpload.vue'
 import {
   desktopBasename,
   getInitialDesktopCadFile,
@@ -85,7 +86,6 @@ import {
   readDesktopCadFile,
   setDesktopWindowTitle
 } from './desktop'
-import FileUpload from './components/FileUpload.vue'
 import { initializeLocale } from './locale'
 import { store } from './store'
 
