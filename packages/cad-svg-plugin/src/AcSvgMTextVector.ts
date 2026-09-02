@@ -13,11 +13,11 @@ import {
 } from '@mlightcad/mtext-renderer'
 
 import { AcSvgEntity } from './AcSvgEntity'
-import {
-  DEFAULT_CAD_PLOT_LINEWEIGHT_MM,
-  AcSvgStyleContext,
-  AcSvgStyleUtil
-} from './AcSvgStyleUtil'
+import { AcSvgMText } from './AcSvgMText'
+import { AcSvgStyleContext, AcSvgStyleUtil } from './AcSvgStyleUtil'
+
+/** Thin SHX text strokes should plot as normal annotation lines on paper. */
+const CAD_TEXT_STROKE_MM = 0.13
 
 /**
  * Dedicated main-thread glyph renderer used only by SVG/PDF export.
@@ -54,7 +54,6 @@ interface ColorLike {
 interface MaterialLike {
   color?: ColorLike
   opacity?: number
-  transparent?: boolean
 }
 
 interface DrawableLike {
@@ -79,15 +78,26 @@ interface Point2d {
  * the resulting PDF fully vector without embedding proprietary font files.
  */
 export class AcSvgMTextVector extends AcSvgEntity {
-  static async create(
+  /**
+   * Returns the entity immediately plus an async population task. Returning the
+   * real entity immediately is important: block/group worldDraw code can apply
+   * its transforms before the glyph geometry finishes loading.
+   */
+  static begin(
     mtext: AcGiMTextData,
     style: AcGiTextStyle,
     traits: AcGiSubEntityTraits,
     ctx: AcSvgStyleContext
-  ): Promise<AcSvgMTextVector> {
+  ): { entity: AcSvgMTextVector; pending: Promise<void> } {
     const entity = new AcSvgMTextVector()
-    await entity.build(mtext, style, traits, ctx)
-    return entity
+    const pending = entity.build(mtext, style, traits, ctx).catch(() => {
+      // Never make an otherwise valid export fail solely because a font is
+      // unavailable. The legacy SVG text path remains a last-resort fallback.
+      const fallback = new AcSvgMText(mtext, style, traits, ctx)
+      entity._localSvg = fallback.getLocalSvg()
+      entity._box.copy(fallback.box)
+    })
+    return { entity, pending }
   }
 
   private async build(
@@ -160,9 +170,7 @@ export class AcSvgMTextVector extends AcSvgEntity {
             stroke: color,
             'stroke-linecap': 'round',
             'stroke-linejoin': 'round',
-            'data-cad-lineweight-mm': String(
-              Math.min(DEFAULT_CAD_PLOT_LINEWEIGHT_MM, 0.13)
-            )
+            'data-cad-lineweight-mm': String(CAD_TEXT_STROKE_MM)
           }
           if (opacity < 1) {
             attrs['stroke-opacity'] = String(opacity)
@@ -171,6 +179,10 @@ export class AcSvgMTextVector extends AcSvgEntity {
         }
       }
     })
+
+    if (fragments.length === 0 || box.isEmpty()) {
+      throw new Error('Vector text renderer produced no drawable glyph geometry')
+    }
 
     this._localSvg = fragments.join('\n')
     this._box = box
