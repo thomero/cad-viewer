@@ -1,23 +1,31 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "CAD Viewer",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "identifier": "com.moudourossoftware.cadviewer",
   "build": {
     "beforeBuildCommand": "pnpm --dir ../.. --filter @mlightcad/cad-viewer-example... build",
     "frontendDist": "../../cad-viewer-example/dist"
   },
   "app": {
+    "withGlobalTauri": true,
     "windows": [
       {
+        "label": "main",
         "title": "CAD Viewer",
         "width": 1440,
         "height": 900,
         "minWidth": 1024,
         "minHeight": 700,
         "resizable": true,
+        "maximizable": true,
+        "minimizable": true,
+        "closable": true,
         "fullscreen": false,
-        "center": true
+        "center": true,
+        "dragDropEnabled": false,
+        "preventOverflow": true,
+        "devtools": false
       }
     ],
     "security": {
@@ -29,6 +37,25 @@
     "targets": [
       "nsis"
     ],
+    "category": "GraphicsAndDesign",
+    "publisher": "Moudouros Software",
+    "copyright": "Copyright © 2026 Thomas Moudouros Ltd",
+    "shortDescription": "Open, inspect, measure and edit DWG and DXF CAD drawings on Windows.",
+    "longDescription": "A Windows desktop CAD viewer and editor for local DWG and DXF drawings, including the existing CAD viewing, editing, review, measurement and export toolset.",
+    "fileAssociations": [
+      {
+        "ext": ["dwg"],
+        "name": "DWG Drawing",
+        "description": "DWG Drawing",
+        "role": "Editor"
+      },
+      {
+        "ext": ["dxf"],
+        "name": "DXF Drawing",
+        "description": "DXF Drawing",
+        "role": "Editor"
+      }
+    ],
     "icon": [
       "icons/icon.ico"
     ],
@@ -36,6 +63,12 @@
       "webviewInstallMode": {
         "type": "downloadBootstrapper",
         "silent": true
+      },
+      "nsis": {
+        "installMode": "currentUser",
+        "startMenuFolder": "Moudouros Software",
+        "installerIcon": "icons/icon.ico",
+        "uninstallerIcon": "icons/icon.ico"
       }
     }
   }
