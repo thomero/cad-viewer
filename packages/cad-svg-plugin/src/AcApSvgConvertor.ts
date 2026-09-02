@@ -1,7 +1,8 @@
 import type { AcApContext } from '@mlightcad/cad-simple-viewer'
 import {
   AcApSettingManager,
-  resolveExportDownloadName
+  resolveExportDownloadName,
+  saveExportText
 } from '@mlightcad/cad-simple-viewer'
 
 import { AcSvgRenderer } from './AcSvgRenderer'
@@ -9,13 +10,11 @@ import { AcSvgRenderer } from './AcSvgRenderer'
 /**
  * Utility class for converting CAD drawings to SVG format.
  *
- * Renders model-space entities with {@link AcSvgRenderer} and triggers a
- * browser download of the resulting SVG file.
+ * Renders model-space entities with {@link AcSvgRenderer} and saves the
+ * resulting SVG using the shared browser/desktop export path.
  */
 export class AcApSvgConvertor {
-  /**
-   * Converts the current CAD drawing to SVG format and initiates download.
-   */
+  /** Converts the current CAD drawing to SVG format. */
   async convert(context: AcApContext) {
     AcSvgRenderer.prepareExport()
 
@@ -33,12 +32,15 @@ export class AcApSvgConvertor {
       context.doc.fileName || context.doc.docTitle,
       'svg'
     )
-    this.createFileAndDownloadIt(svgContent, downloadName)
+    await saveExportText(
+      svgContent,
+      downloadName,
+      'svg',
+      'image/svg+xml;charset=utf-8'
+    )
   }
 
-  /**
-   * Configures export renderer scales, colours, and font substitution.
-   */
+  /** Configures export renderer scales, colours, and font substitution. */
   configureRenderer(renderer: AcSvgRenderer, context: AcApContext) {
     const db = context.doc.database
     renderer.ltscale = db.ltscale
@@ -50,22 +52,5 @@ export class AcApSvgConvertor {
     const bg = view?.backgroundColor ?? 0xffffff
     renderer.currentBackgroundColor = bg
     renderer.changeForeground(bg === 0 ? 0xffffff : 0x000000)
-  }
-
-  private createFileAndDownloadIt(svgContent: string, downloadName: string) {
-    const svgBlob = new Blob([svgContent], {
-      type: 'image/svg+xml;charset=utf-8'
-    })
-
-    const url = URL.createObjectURL(svgBlob)
-
-    const downloadLink = document.createElement('a')
-    downloadLink.href = url
-    downloadLink.download = downloadName
-
-    document.body.appendChild(downloadLink)
-    downloadLink.click()
-    document.body.removeChild(downloadLink)
-    window.setTimeout(() => URL.revokeObjectURL(url), 60_000)
   }
 }
