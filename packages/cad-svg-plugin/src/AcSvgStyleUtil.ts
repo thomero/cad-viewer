@@ -5,6 +5,9 @@ import {
   AcGiSubEntityTraits
 } from '@mlightcad/data-model'
 
+/** Default plotted lineweight when CAD traits resolve to ByLayer/ByBlock/Default. */
+export const DEFAULT_CAD_PLOT_LINEWEIGHT_MM = 0.18
+
 /** Runtime style options passed from {@link AcSvgRenderer}. */
 export interface AcSvgStyleContext {
   ltscale: number
@@ -13,7 +16,7 @@ export interface AcSvgStyleContext {
   backgroundColor: number
   /** Resolved foreground colour for ACI 7 linework (24-bit RGB). */
   foregroundColor: number
-  /** Mirrors LWDISPLAY: when false, lineweights are not rendered. */
+  /** Mirrors LWDISPLAY for normal SVG viewing. PDF plotting overrides widths later. */
   showLineWeight: boolean
 }
 
@@ -49,22 +52,38 @@ export class AcSvgStyleUtil {
     ).resolveSubEntityTraitsRgb(traits)
   }
 
+  /**
+   * Returns the physical CAD plot lineweight in millimetres.
+   * AutoCAD positive lineweight enum values are hundredths of a millimetre.
+   */
+  static lineWeightMillimetres(lineWeight: AcGiLineWeight): number {
+    if (lineWeight < 0) {
+      return DEFAULT_CAD_PLOT_LINEWEIGHT_MM
+    }
+    return Math.max(0.01, lineWeight / 100)
+  }
+
   static strokeAttributes(
     traits: AcGiSubEntityTraits,
     ctx: AcSvgStyleContext
   ): Record<string, string> {
     const color = this.rgbToHex(this.resolveRgb(traits, ctx, 'line'))
+    const physicalLineWeight = this.lineWeightMillimetres(traits.lineWeight)
     const attrs: Record<string, string> = {
       stroke: color,
-      fill: 'none'
+      fill: 'none',
+      // Kept as metadata so the PDF plotter can convert physical mm to SVG
+      // user units after it knows the final paper scale.
+      'data-cad-lineweight-mm': String(physicalLineWeight)
     }
 
     if (!ctx.showLineWeight) {
-      // LWDISPLAY=0: 1 device-pixel hairlines (matches three-renderer LineBasicMaterial).
+      // Normal SVG viewing follows LWDISPLAY. PDF export ignores this visual
+      // width and restores the physical value from data-cad-lineweight-mm.
       attrs['stroke-width'] = '1'
       attrs['vector-effect'] = 'non-scaling-stroke'
     } else {
-      const width = this.resolveStrokeWidth(traits.lineWeight)
+      const width = this.resolveSvgStrokeWidth(traits.lineWeight)
       if (width != null) {
         attrs['stroke-width'] = String(width)
       }
@@ -155,11 +174,12 @@ export class AcSvgStyleUtil {
     return !style.definitionLines || style.definitionLines.length === 0
   }
 
-  private static resolveStrokeWidth(lineWeight: AcGiLineWeight): number | null {
+  private static resolveSvgStrokeWidth(lineWeight: AcGiLineWeight): number | null {
     if (lineWeight < 0) {
       return null
     }
-    // AutoCAD lineweights are in 0.01 mm; drawings are typically model units in mm.
+    // This value is only for standalone SVG display. PDF plotting uses the
+    // physical data-cad-lineweight-mm metadata instead.
     return Math.max(0.01, lineWeight / 100)
   }
 
