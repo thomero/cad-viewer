@@ -79,6 +79,8 @@ fn desktop_save_export_file(
     let filter_name = match extension.as_str() {
         "pdf" => "PDF document",
         "svg" => "SVG image",
+        "png" => "PNG image",
+        "dxf" => "DXF drawing",
         "html" | "htm" => "HTML document",
         _ => return Err(format!("Unsupported export format: {extension}")),
     };
