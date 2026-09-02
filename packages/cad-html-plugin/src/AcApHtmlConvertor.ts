@@ -3,7 +3,8 @@ import {
   AcEdBaseView,
   AcTrView2d,
   getDrawingExportBaseName,
-  resolveExportDownloadName
+  resolveExportDownloadName,
+  saveExportText
 } from '@mlightcad/cad-simple-viewer'
 import { accmYieldForPaint } from '@mlightcad/data-model'
 
@@ -31,13 +32,10 @@ import type { AcExSnapshot } from './AcExSnapshotTypes'
  * Workflow:
  * 1. Build a display-only {@link AcExSnapshot} from the current scene and database.
  * 2. Fetch the IIFE viewer runtime (inlined into the HTML).
- * 3. Package snapshot + runtime via `packHtml` and trigger a browser download.
+ * 3. Package snapshot + runtime and save through the shared browser/desktop path.
  *
  * A busy indicator is shown for the duration of the operation. The UI thread
  * is yielded between heavy steps so the browser can repaint.
- *
- * The runtime URL is configured on this plugin (`viewerRuntimeUrl`), not on
- * `AcApDocManager` — see {@link AcApHtmlPluginOptions}.
  */
 export class AcApHtmlConvertor {
   /** Collects geometry and metadata from the live Three.js scene. */
@@ -85,13 +83,10 @@ export class AcApHtmlConvertor {
   /**
    * Exports the document currently open in {@link AcApDocManager}.
    *
-   * @param fileName - Optional base name for the download (without extension).
-   *   When omitted, the active document's `fileName` is used. A `.html` suffix
-   *   is always applied; `.dwg` / `.dxf` suffixes on the input are stripped.
+   * @param fileName - Optional base name for the export (without extension).
    * @param options - Export options such as invisible-layer inclusion, layout
    *   inclusion, and initial view.
    * @param view - Optional view to export from. Defaults to the active view.
-   * @returns Resolves when packaging and download complete.
    */
   async convert(
     fileName?: string,
@@ -131,9 +126,7 @@ export class AcApHtmlConvertor {
       )
 
       await accmYieldForPaint()
-
       const viewerRuntime = await this.loadViewerRuntime()
-
       await accmYieldForPaint()
 
       const expiresAt = resolveAcApHtmlExpiresAt(
@@ -157,22 +150,11 @@ export class AcApHtmlConvertor {
       })
 
       await accmYieldForPaint()
-
-      this.downloadHtml(html, resolveExportDownloadName(sourceName, 'html'))
+      await this.saveHtml(html, resolveExportDownloadName(sourceName, 'html'))
     })
   }
 
-  /**
-   * Packages a pre-built snapshot into HTML and downloads it.
-   *
-   * Skips scene collection; useful for tests, CLI tooling, or re-exporting a
-   * snapshot produced elsewhere.
-   *
-   * @param snapshot - Complete v1 snapshot to embed in the HTML.
-   * @param downloadName - File name passed to the browser download API (should
-   *   include the `.html` extension).
-   * @returns Resolves when packaging and download complete.
-   */
+  /** Packages a pre-built snapshot into HTML and saves it. */
   async packSnapshot(snapshot: AcExSnapshot, downloadName: string) {
     const docManager = AcApDocManager.instance
 
@@ -191,16 +173,11 @@ export class AcApHtmlConvertor {
         accessManifest: protectedSnapshot.manifest
       })
       await accmYieldForPaint()
-      this.downloadHtml(html, downloadName)
+      await this.saveHtml(html, downloadName)
     })
   }
 
-  /**
-   * Fetches the offline viewer runtime as source text for inlining.
-   *
-   * @returns The runtime script body as a string.
-   * @throws If the HTTP response is not OK (missing build artifact, CORS, etc.).
-   */
+  /** Fetches the offline viewer runtime as source text for inlining. */
   private async loadViewerRuntime(): Promise<string> {
     const runtimeUrl = resolveViewerRuntimeUrl(this.options.viewerRuntimeUrl)
     const response = await fetch(runtimeUrl)
@@ -214,21 +191,13 @@ export class AcApHtmlConvertor {
     return response.text()
   }
 
-  /**
-   * Triggers a client-side download of the generated HTML string.
-   *
-   * @param content - Full HTML document text.
-   * @param downloadName - Value for the anchor `download` attribute.
-   */
-  private downloadHtml(content: string, downloadName: string) {
-    const blob = new Blob([content], { type: 'text/html;charset=utf-8' })
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = downloadName
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
-    window.setTimeout(() => URL.revokeObjectURL(url), 60_000)
+  /** Saves the generated self-contained HTML in browser or desktop mode. */
+  private async saveHtml(content: string, downloadName: string) {
+    await saveExportText(
+      content,
+      downloadName,
+      'html',
+      'text/html;charset=utf-8'
+    )
   }
 }
